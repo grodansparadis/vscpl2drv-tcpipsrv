@@ -1,4 +1,4 @@
-// tcpipsrv.cpp: implementation of the CTcpipLink class.
+// tcpipsrv.cpp: implementation of the CTcpipSrv class.
 //
 // This program is free software; you can redistribute it and/or
 // modify it under the terms of the GNU General Public License
@@ -21,7 +21,7 @@
 // Boston, MA 02111-1307, USA.
 //
 
-#include "tcpiplink.h"
+#include "tcpipsrv.h"
 
 #include <limits.h>
 #include <net/if.h>
@@ -57,6 +57,7 @@
 #include <vscpdatetime.h>
 #include <vscphelper.h>
 #include <vscpremotetcpif.h>
+//#include "clientlist.h"
 
 #include <list>
 #include <map>
@@ -68,18 +69,36 @@
 // Forward declaration
 void*
 workerThreadReceive(void* pData);
+
 void*
 workerThreadSend(void* pData);
 
+void*
+tcpipListenThread(void* pData); 
+
 //////////////////////////////////////////////////////////////////////
-// CTcpipLink
+// CTcpipSrv
 //
 
-CTcpipLink::CTcpipLink()
+CTcpipSrv::CTcpipSrv()
 {
     m_bDebug = false;
     m_bAllowWrite = false;
     m_bQuit = false;
+
+    // Default TCP/IP interface settings
+    m_strTcpInterfaceAddress = "9598";
+    m_encryptionTcpip        = 0;
+    m_tcpip_ssl_certificate.clear();
+    m_tcpip_ssl_certificate_chain.clear();
+    m_tcpip_ssl_verify_peer = 0; // no=0, optional=1, yes=2
+    m_tcpip_ssl_ca_path.clear();
+    m_tcpip_ssl_ca_file.clear();
+    m_tcpip_ssl_verify_depth         = 9;
+    m_tcpip_ssl_default_verify_paths = false;
+    m_tcpip_ssl_cipher_list.clear();
+    m_tcpip_ssl_protocol_version = 0;
+    m_tcpip_ssl_short_trust      = false;
 
     vscp_clearVSCPFilter(&m_rxfilter); // Accept all events
     vscp_clearVSCPFilter(&m_txfilter); // Send all events
@@ -93,10 +112,10 @@ CTcpipLink::CTcpipLink()
 }
 
 //////////////////////////////////////////////////////////////////////
-// ~CTcpipLink
+// ~CTcpipSrv
 //
 
-CTcpipLink::~CTcpipLink()
+CTcpipSrv::~CTcpipSrv()
 {
     close();
 
@@ -116,30 +135,134 @@ CTcpipLink::~CTcpipLink()
     XML configuration
     -----------------
 
-    <setup host="localhost"
-              port="9598"
-              user="admin"
-              password="secret"
-              rxfilter=""
-              rxmask=""
-              txfilter=""
-              txmask=""
-              responsetimeout="2000" />
+        You can open TCP/IP interfaces on several ports or on
+        on a specific port or on every interface of the computer
+        Default 9598 will listen on all interfaces while
+        "127.0.0.1:9598" only will listen on the specified interface.
+        To specify several interfaces just enter them with a space
+        between them.
+        
+        interface  - Set port and interface to listen on as a comma
+                     separated list.
+        encryption - Set VSCP AES encryption for interface. aes128, ase192, 
+                     aes256 are valid values.
+        ssl_certificate - Path to SSL certificat PEM format file. If empty the
+                          TLS system will not be initialised.
+                          Common path: /etc/vscp/certs/server.pem 
+        ssl_certificate_chain - Path to an SSL certificate chain file. As a default, 
+                                the ssl_certificate file is used.
+        ssl_verify_peer       - [yes/no] Enable clients certificate verification by the 
+                                server. Default: no
+        ssl_ca_path           - Name of a directory containing trusted CA certificates. 
+                                Each file in the directory must contain only a single 
+                                CA certificate. The files must be named by the subject 
+                                name’s hash and an extension of “.0”. If there is more 
+                                than one certificate with the same subject name they 
+                                should have extensions ".0", ".1", ".2" and so on 
+                                respectively.
+        ssl_ca_file           - Path to a .pem file containing trusted certificates. 
+                                The file may contain more than one certificate.
+        ssl_verify_depth      - Sets maximum depth of certificate chain. If clients certificate 
+                                chain is longer than the depth set here connection is refused.
+                                Default: 9
+        ssl_default_verify_paths - [yes/no] Loads default trusted certificates locations set at 
+                                   openssl compile time. Default is yes
+        ssl_cipher_list       - List of ciphers to present to the client. 
+                                Entries should be separated by colons, commas or spaces.
+                                
+                                Example:
+                                ALL           All available ciphers
+                                ALL:!eNULL    All ciphers excluding NULL ciphers
+                                AES128:!MD5   AES 128 with digests other than MD5
+                                
+                                See https://www.openssl.org/docs/man1.1.0/man1/ciphers.html
+                                in OpenSSL documentation for full list of options and additional 
+                                examples.
+        ssl_protocol_version  - Sets the minimal accepted version of SSL/TLS protocol according to 
+                                the table:
+
+                                SSL2+SSL3+TLS1.0+TLS1.1+TLS1.2 	0 (default)
+                                SSL3+TLS1.0+TLS1.1+TLS1.2 	1
+                                TLS1.0+TLS1.1+TLS1.2 	        2
+                                TLS1.1+TLS1.2 	                3
+                                TLS1.2 	                        4
+
+                                More recent versions of OpenSSL include support for TLS version 1.3. 
+                                To use TLS1.3 only, set ssl_protocol_version to 5.
+        ssl_short_trust       - [yes/no] Enables the use of short lived certificates. This will allow for the 
+                                certificates and keys specified in ssl_certificate, ssl_ca_file and 
+                                ssl_ca_path to be exchanged and reloaded while the server is running.
+
+                                In an automated environment it is advised to first write the new pem file 
+                                to a different filename and then to rename it to the configured pem file 
+                                name to increase performance while swapping the certificate.
+
+                                Disk IO performance can be improved when keeping the certificates and keys 
+                                stored on a tmpfs (linux) on a system with very high throughput.  
+
+                                Default: no                       
+
+    <setup interface="9598"
+            encryption="aes256"
+            ssl_certificate=""
+            ssl_certificate_chain=""
+            ssl_verify_peer="false"
+            ssl_ca_path=""
+            ssl_ca_file=""
+            ssl_verify_depth="9"
+            ssl_default_verify_paths="true"
+            ssl_cipher_list="DES-CBC3-SHA:AES128-SHA:AES128-GCM-SHA256"
+            ssl_protocol_version="3"
+            ssl_short_trust="false" >
+
+        <!--
+            Holds information about one (at least) or more users
+            Use vscp-mkpassword to generate a new password
+            Privilege is "admin" or "user" or comma seperated list
+            Same information is used for accessing the daemon
+            through the TCP/IP interface as through the web-interface
+        -->
+            <users>
+                <user name="user"                
+                    password="D35967DEE4CFFB214124DFEEA7778BB0;582BCA078604C925852CDDEE0A8475556DEAA6DC6EFB004A353094900C97D3DE"
+                    privilege="user"
+                    allowfrom=""
+                    filter=""
+                    events=""
+                    fullname="Sample user"
+                    note="A normal user. username="user" password='secret'" />
+                <user name="udp"                
+                    password="D35967DEE4CFFB214124DFEEA7778BB0;582BCA078604C925852CDDEE0A8475556DEAA6DC6EFB004A353094900C97D3DE"
+                    privilege="udp"
+                    allowfrom=""
+                    filter=""
+                    events=""
+                    fullname="UDP user"
+                    note="A normal user. username="user" password='secret'"
+            />
+            </users>
+
+     </setup>
 */
 
 // ----------------------------------------------------------------------------
 
-int depth_setup_parser = 0;
+static int depth_config_parser = 0;
+static bool bConfigFound = false;
+static bool bUserConfigFound = false;
+
 
 void
 startSetupParser(void* data, const char* name, const char** attr)
 {
-    CTcpipLink* pObj = (CTcpipLink*)data;
+    CTcpipSrv* pObj = (CTcpipSrv*)data;
     if (NULL == pObj) {
         return;
     }
 
-    if ((0 == strcmp(name, "config")) && (0 == depth_setup_parser)) {
+    if ((0 == strcmp(name, "config")) && (0 == depth_config_parser)) {
+
+        bConfigFound = true;
 
         for (int i = 0; attr[i]; i += 2) {
 
@@ -166,23 +289,53 @@ startSetupParser(void* data, const char* name, const char** attr)
                     }
                 }
             }
-            else if (0 == strcasecmp(attr[i], "remote-host")) {
-                if (!attribute.empty()) {
-                    pObj->m_hostRemote = attribute;
+            else if (0 == vscp_strcasecmp(attr[i], "interface")) {
+                vscp_startsWith(attribute, "tcp://", &attribute);
+                vscp_trim(attribute);
+                pObj->m_strTcpInterfaceAddress = attribute;
+            }
+            else if (0 == vscp_strcasecmp(attr[i], "ssl_certificate")) {
+                pObj->m_tcpip_ssl_certificate = attribute;
+            }
+            else if (0 == vscp_strcasecmp(attr[i], "ssl_verify_peer")) {
+                pObj->m_tcpip_ssl_verify_peer = vscp_readStringValue(attribute);
+            }
+            else if (0 == vscp_strcasecmp(attr[i], "ssl_certificate_chain")) {
+                pObj->m_tcpip_ssl_certificate_chain = attribute;
+            }
+            else if (0 == vscp_strcasecmp(attr[i], "ssl_ca_path")) {
+                pObj->m_tcpip_ssl_ca_path = attribute;
+            }
+            else if (0 == vscp_strcasecmp(attr[i], "ssl_ca_file")) {
+                pObj->m_tcpip_ssl_ca_file = attribute;
+            }
+            else if (0 == vscp_strcasecmp(attr[i], "ssl_verify_depth")) {
+                pObj->m_tcpip_ssl_verify_depth =
+                  vscp_readStringValue(attribute);
+            }
+            else if (0 ==
+                     vscp_strcasecmp(attr[i], "ssl_default_verify_paths")) {
+                if (0 == vscp_strcasecmp(attribute.c_str(), "true")) {
+                    pObj->m_tcpip_ssl_default_verify_paths = true;
                 }
-            } 
-            else if (0 == strcasecmp(attr[i], "remote-port")) {
-                if (!attribute.empty()) {
-                    pObj->m_portRemote = vscp_readStringValue(attribute);
+                else {
+                    pObj->m_tcpip_ssl_default_verify_paths = false;
                 }
-            } else if (0 == strcasecmp(attr[i], "remote-user")) {
-                if (!attribute.empty()) {
-                    pObj->m_usernameRemote = attribute;
+            }
+            else if (0 == vscp_strcasecmp(attr[i], "ssl_cipher_list")) {
+                pObj->m_tcpip_ssl_cipher_list = attribute;
+            }
+            else if (0 == vscp_strcasecmp(attr[i], "ssl_protocol_version")) {
+                pObj->m_tcpip_ssl_verify_depth =
+                  vscp_readStringValue(attribute);
+            }
+            else if (0 == vscp_strcasecmp(attr[i], "ssl_short_trust")) {
+                if (0 == vscp_strcasecmp(attribute.c_str(), "true")) {
+                    pObj->m_tcpip_ssl_short_trust = true;
                 }
-            } else if (0 == strcasecmp(attr[i], "remote-password")) {
-                if (!attribute.empty()) {
-                    pObj->m_passwordRemote = attribute;
-                }
+                else {
+                    pObj->m_tcpip_ssl_short_trust = false;
+                }       
             } else if (0 == strcasecmp(attr[i], "rxfilter")) {
                 if (!attribute.empty()) {
                     if (!vscp_readFilterFromString(&pObj->m_rxfilter,
@@ -226,14 +379,112 @@ startSetupParser(void* data, const char* name, const char** attr)
             }
         }
     }
+    else if (bConfigFound && (1 == depth_config_parser) &&
+             (0 == vscp_strcasecmp(name, "users"))) {
+        bUserConfigFound = true;
+    }
+    else if (bConfigFound && 
+              bUserConfigFound &&
+              (0 == strcmp(name, "user")) &&
+              (2 == depth_config_parser) ) {
 
-    depth_setup_parser++;
+        vscpEventFilter VSCPFilter;
+        bool bFilterPresent = false;
+        bool bMaskPresent   = false;
+        std::string name;
+        std::string md5;
+        std::string privilege;
+        std::string allowfrom;
+        std::string allowevent;
+        std::string fullname;
+        std::string note;
+
+        vscp_clearVSCPFilter(&VSCPFilter); // Allow all frames
+
+        for (int i=0; attr[i]; i += 2) {
+
+            std::string attribute = attr[i + 1];
+            vscp_trim(attribute);
+
+            if (0 == vscp_strcasecmp(attr[i], "name")) {
+                name = attribute;
+            }
+            else if (0 == vscp_strcasecmp(attr[i], "password")) {
+                md5 = attribute;
+            }
+            else if (0 == vscp_strcasecmp(attr[i], "fullname")) {
+                fullname = attribute;
+            }
+            else if (0 == vscp_strcasecmp(attr[i], "note")) {
+                note = attribute;
+            }
+            else if (0 == vscp_strcasecmp(attr[i], "privilege")) {
+                privilege = attribute;
+            }
+            else if (0 == vscp_strcasecmp(attr[i], "allowfrom")) {
+                allowfrom = attribute;
+            }
+            else if (0 == vscp_strcasecmp(attr[i], "allowevent")) {
+                allowevent = attribute;
+            }
+            else if (0 == vscp_strcasecmp(attr[i], "filter")) {
+                if (attribute.length()) {
+                    if (vscp_readFilterFromString(&VSCPFilter, attribute)) {
+                        bFilterPresent = true;
+                    }
+                }
+            }
+            else if (0 == vscp_strcasecmp(attr[i], "mask")) {
+                if (attribute.length()) {
+                    if (vscp_readMaskFromString(&VSCPFilter, attribute)) {
+                        bMaskPresent = true;
+                    }
+                }
+            }            
+        }
+
+        if (bFilterPresent && bMaskPresent) {
+            pObj->m_userList.addUser(name,
+                                        md5,
+                                        fullname,
+                                        note,
+                                        "123.com",
+                                        &VSCPFilter,
+                                        privilege,
+                                        allowfrom,
+                                        allowevent,
+                                        0);
+        }
+        else {
+            pObj->m_userList.addUser(name,
+                                        md5,
+                                        fullname,
+                                        note,
+                                        "123.com",
+                                        NULL,
+                                        privilege,
+                                        allowfrom,
+                                        allowevent,
+                                        0);
+        }
+    }
+
+    depth_config_parser++;
 }
 
 void
 endSetupParser(void* data, const char* name)
 {
-    depth_setup_parser--;
+    depth_config_parser--;
+
+    if (1 == depth_config_parser &&
+        (0 == vscp_strcasecmp(name, "config"))) {
+        bConfigFound = false;
+    }
+    if (bConfigFound && (1 == depth_config_parser) &&
+             (0 == vscp_strcasecmp(name, "user"))) {
+        bUserConfigFound = false;
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -244,7 +495,7 @@ endSetupParser(void* data, const char* name)
 //
 
 bool
-CTcpipLink::open(std::string& path, const cguid& guid)
+CTcpipSrv::open(std::string& path, const cguid& guid)
 {
     // Set GUID
     m_guid = guid;
@@ -259,17 +510,10 @@ CTcpipLink::open(std::string& path, const cguid& guid)
                path.c_str());
     }
 
-    // start the workerthread
-    if (pthread_create(&m_pthreadSend, NULL, workerThreadSend, this)) {
+    if (!startTcpipSrvThread()) {
         syslog(LOG_ERR,
-               "[vscpl2drv-tcpipsrv] Unable to start send worker thread.");
-        return false;
-    }
-
-    if (pthread_create(&m_pthreadReceive, NULL, workerThreadReceive, this)) {
-        syslog(LOG_ERR,
-               "[vscpl2drv-tcpipsrv] Unable to start receive worker thread.");
-        return false;
+               "[vscpl2drv-tcpipsrv] Failed to start server.");
+        return false;    
     }
 
     return true;
@@ -280,7 +524,7 @@ CTcpipLink::open(std::string& path, const cguid& guid)
 //
 
 void
-CTcpipLink::close(void)
+CTcpipSrv::close(void)
 {
     // Do nothing if already terminated
     if (m_bQuit)
@@ -301,7 +545,7 @@ startHLOParser(void* data, const char* name, const char** attr)
     if (NULL == pObj)
         return;
 
-    if ((0 == strcmp(name, "vscp-cmd")) && (0 == depth_setup_parser)) {
+    if ((0 == strcmp(name, "vscp-cmd")) && (0 == depth_config_parser)) {
 
         for (int i = 0; attr[i]; i += 2) {
 
@@ -372,7 +616,7 @@ endHLOParser(void* data, const char* name)
 //
 
 bool
-CTcpipLink::parseHLO(uint16_t size, uint8_t* inbuf, CHLO* phlo)
+CTcpipSrv::parseHLO(uint16_t size, uint8_t* inbuf, CHLO* phlo)
 {
     // Check pointers
     if (NULL == inbuf) {
@@ -421,7 +665,7 @@ CTcpipLink::parseHLO(uint16_t size, uint8_t* inbuf, CHLO* phlo)
 //
 
 bool
-CTcpipLink::doLoadConfig(void)
+CTcpipSrv::doLoadConfig(void)
 {
     FILE* fp;
     
@@ -471,7 +715,7 @@ CTcpipLink::doLoadConfig(void)
 //
 
 bool
-CTcpipLink::doSaveConfig(void)
+CTcpipSrv::doSaveConfig(void)
 {
     char buf[2048]; // Working buffer
 
@@ -521,7 +765,7 @@ CTcpipLink::doSaveConfig(void)
 //
 
 bool
-CTcpipLink::handleHLO(vscpEvent* pEvent)
+CTcpipSrv::handleHLO(vscpEvent* pEvent)
 {
     char buf[512]; // Working buffer
     vscpEventEx ex;
@@ -730,7 +974,7 @@ CTcpipLink::handleHLO(vscpEvent* pEvent)
 //
 
 bool
-CTcpipLink::eventExToReceiveQueue(vscpEventEx& ex)
+CTcpipSrv::eventExToReceiveQueue(vscpEventEx& ex)
 {
     vscpEvent* pev = new vscpEvent();
     if (!vscp_convertEventExToEvent(pev, &ex)) {
@@ -760,12 +1004,170 @@ CTcpipLink::eventExToReceiveQueue(vscpEventEx& ex)
 //
 
 bool
-CTcpipLink::addEvent2SendQueue(const vscpEvent* pEvent)
+CTcpipSrv::addEvent2SendQueue(const vscpEvent* pEvent)
 {
     pthread_mutex_lock(&m_mutexSendQueue);
     m_sendList.push_back((vscpEvent*)pEvent);
     sem_post(&m_semSendQueue);
     pthread_mutex_lock(&m_mutexSendQueue);
+    return true;
+}
+
+/////////////////////////////////////////////////////////////////////////////
+// startTcpWorkerThread
+//
+
+bool
+CTcpipSrv::startTcpipSrvThread(void)
+{
+    if (__VSCP_DEBUG_TCP) {
+        syslog(LOG_DEBUG, "Controlobject: Starting TCP/IP interface...");
+    }
+
+    // Create the tcp/ip server data object
+    m_ptcpipSrvObject = (tcpipListenThreadObj*)new tcpipListenThreadObj(this);
+    if (NULL == m_ptcpipSrvObject) {
+        syslog(LOG_ERR,
+               "Controlobject: Failed to allocate storage for tcp/ip.");
+    }
+
+    // Set the port to listen for connections on
+    m_ptcpipSrvObject->setListeningPort(m_strTcpInterfaceAddress);
+
+    if (pthread_create(&m_tcpipListenThread,
+                       NULL,
+                       tcpipListenThread,
+                       m_ptcpipSrvObject)) {
+        delete m_ptcpipSrvObject;
+        m_ptcpipSrvObject = NULL;
+        syslog(LOG_ERR,
+               "Controlobject: Unable to start the tcp/ip listen thread.");
+        return false;
+    }
+
+    return true;
+}
+
+/////////////////////////////////////////////////////////////////////////////
+// stopTcpWorkerThread
+//
+
+bool
+CTcpipSrv::stopTcpipSrvThread(void)
+{
+    // Tell the thread it's time to quit
+    m_ptcpipSrvObject->m_nStopTcpIpSrv = VSCP_TCPIP_SRV_STOP;
+
+    if (__VSCP_DEBUG_TCP) {
+        syslog(LOG_DEBUG, "Controlobject: Terminating TCP thread.");
+    }
+
+    pthread_join(m_tcpipListenThread, NULL);
+    delete m_ptcpipSrvObject;
+    m_ptcpipSrvObject = NULL;
+
+    if (__VSCP_DEBUG_TCP) {
+        syslog(LOG_DEBUG, "Controlobject: Terminated TCP thread.");
+    }
+
+    return true;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// addClient
+//
+
+bool
+CTcpipSrv::addClient(CClientItem* pClientItem, uint32_t id)
+{
+    // Check pointer
+    if ( NULL == pClientItem ) {
+        return false;
+    }
+
+    // Add client to client list
+    if (!m_clientList.addClient(pClientItem, id)) {
+        return false;
+    }
+
+    // Set GUID for interface
+    pClientItem->m_guid = m_guid;
+
+    // Fill in client id
+    pClientItem->m_guid.setNicknameID(0);
+    pClientItem->m_guid.setClientID(pClientItem->m_clientID);
+
+    return true;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// addClient - GUID (for drivers with set GUID)
+//
+
+bool
+CTcpipSrv::addClient(CClientItem* pClientItem, cguid& guid)
+{
+    // Check pointer
+    if ( NULL == pClientItem ) {
+        return false;
+    }
+
+    // Add client to client list
+    if (!m_clientList.addClient(pClientItem, guid)) {
+        return false;
+    }
+
+    return true;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// removeClient
+//
+
+void
+CTcpipSrv::removeClient(CClientItem* pClientItem)
+{
+    // Do not try to handle invalid clients
+    if (NULL == pClientItem)
+        return;
+
+    // Remove the client
+    m_clientList.removeClient(pClientItem);
+}
+
+/////////////////////////////////////////////////////////////////////////////
+// generateSessionId
+//
+
+bool
+CTcpipSrv::generateSessionId(const char* pKey, char* psid)
+{
+    char buf[8193];
+
+    // Check pointers
+    if (NULL == pKey)
+        return false;
+    if (NULL == psid)
+        return false;
+
+    if (strlen(pKey) > 256)
+        return false;
+
+    // Generate a random session ID
+    time_t t;
+    t = time(NULL);
+    sprintf(buf,
+            "__%s_%X%X%X%X_be_hungry_stay_foolish_%X%X",
+            pKey,
+            (unsigned int)rand(),
+            (unsigned int)rand(),
+            (unsigned int)rand(),
+            (unsigned int)t,
+            (unsigned int)rand(),
+            1337);
+
+    vscp_md5(psid, (const unsigned char*)buf, strlen(buf));
+
     return true;
 }
 
@@ -778,7 +1180,7 @@ workerThreadSend(void* pData)
 {
     bool bRemoteConnectionLost = false;
 
-    CTcpipLink* pObj = (CTcpipLink*)pData;
+    CTcpipSrv* pObj = (CTcpipSrv*)pData;
     if (NULL == pObj) {
         return NULL;
     }
@@ -909,7 +1311,7 @@ workerThreadReceive(void* pData)
     bool bRemoteConnectionLost = false;
     __attribute__((unused)) bool bActivity = false;
 
-    CTcpipLink* pObj = (CTcpipLink*)pData;
+    CTcpipSrv* pObj = (CTcpipSrv*)pData;
     if (NULL == pObj)
         return NULL;
 

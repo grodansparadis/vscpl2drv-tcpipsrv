@@ -37,7 +37,7 @@
 #include <hlo.h>
 
 #include "vscpl2drv-tcpipsrv.h"
-#include "tcpiplink.h"
+#include "tcpipsrv.h"
 
 void
 _init() __attribute__((constructor));
@@ -50,7 +50,7 @@ void
 _fini() __attribute__((destructor));
 
 // This map holds driver handles/objects
-static std::map<long, CTcpipLink*> g_ifMap;
+static std::map<long, CTcpipSrv*> g_ifMap;
 
 // Mutex for the map object
 static pthread_mutex_t g_mapMutex;
@@ -77,24 +77,23 @@ _fini()
         return;
 
     // Remove orphan objects
-
     LOCK_MUTEX(g_mapMutex);
 
-    for (std::map<long, CTcpipLink*>::iterator it = g_ifMap.begin();
+    for (std::map<long, CTcpipSrv*>::iterator it = g_ifMap.begin();
          it != g_ifMap.end();
          ++it) {
         // std::cout << it->first << " => " << it->second << '\n';
 
-        CTcpipLink* pif = it->second;
+        CTcpipSrv* pif = it->second;
         if (NULL != pif) {
-            pif->m_srvRemoteSend.doCmdClose();
-            pif->m_srvRemoteReceive.doCmdClose();
+            //pif->m_srvRemoteSend.doCmdClose();
+            //pif->m_srvRemoteReceive.doCmdClose();
             delete pif;
             pif = NULL;
         }
     }
 
-    g_ifMap.clear(); // Remove all items
+    g_ifMap.clear();    // Remove all items
 
     UNLOCK_MUTEX(g_mapMutex);
     pthread_mutex_destroy(&g_mapMutex);
@@ -105,9 +104,9 @@ _fini()
 //
 
 long
-addDriverObject(CTcpipLink* pif)
+addDriverObject(CTcpipSrv* pif)
 {
-    std::map<long, CTcpipLink*>::iterator it;
+    std::map<long, CTcpipSrv*>::iterator it;
     long h = 0;
 
     LOCK_MUTEX(g_mapMutex);
@@ -117,7 +116,7 @@ addDriverObject(CTcpipLink* pif)
         if (g_ifMap.end() == (it = g_ifMap.find(h)))
             break;
         h++;
-    };
+    }
 
     g_ifMap[h] = pif;
     h += 1681;
@@ -131,15 +130,16 @@ addDriverObject(CTcpipLink* pif)
 // getDriverObject
 //
 
-CTcpipLink*
+CTcpipSrv*
 getDriverObject(long h)
 {
-    std::map<long, CTcpipLink*>::iterator it;
+    std::map<long, CTcpipSrv*>::iterator it;
     long idx = h - 1681;
 
     // Check if valid handle
-    if (idx < 0)
+    if (idx < 0) {
         return NULL;
+    }
 
     it = g_ifMap.find(idx);
     if (it != g_ifMap.end()) {
@@ -156,17 +156,18 @@ getDriverObject(long h)
 void
 removeDriverObject(long h)
 {
-    std::map<long, CTcpipLink*>::iterator it;
+    std::map<long, CTcpipSrv*>::iterator it;
     long idx = h - 1681;
 
     // Check if valid handle
-    if (idx < 0)
+    if (idx < 0) {
         return;
+    }
 
     LOCK_MUTEX(g_mapMutex);
     it = g_ifMap.find(idx);
     if (it != g_ifMap.end()) {
-        CTcpipLink* pObj = it->second;
+        CTcpipSrv* pObj = it->second;
         if (NULL != pObj) {
             delete pObj;
             pObj = NULL;
@@ -189,7 +190,7 @@ VSCPOpen(const char* pPathConfig, const char* pguid)
 {
     long h = 0;
 
-    CTcpipLink* pdrvObj = new CTcpipLink();
+    CTcpipSrv* pdrvObj = new CTcpipSrv();
     if (NULL != pdrvObj) {
 
         cguid guid(pguid);
@@ -215,9 +216,11 @@ VSCPOpen(const char* pPathConfig, const char* pguid)
 extern "C" int
 VSCPClose(long handle)
 {
-    CTcpipLink* pdrvObj = getDriverObject(handle);
-    if (NULL == pdrvObj)
+    CTcpipSrv* pdrvObj = getDriverObject(handle);
+    if (NULL == pdrvObj) {
         return 0;
+    }
+
     pdrvObj->close();
     removeDriverObject(handle);
 
@@ -231,9 +234,10 @@ VSCPClose(long handle)
 extern "C" int
 VSCPWrite(long handle, const vscpEvent* pEvent, unsigned long timeout)
 {
-    CTcpipLink* pdrvObj = getDriverObject(handle);
-    if (NULL == pdrvObj)
+    CTcpipSrv* pdrvObj = getDriverObject(handle);
+    if (NULL == pdrvObj) {
         return CANAL_ERROR_MEMORY;
+    }
 
     pdrvObj->addEvent2SendQueue(pEvent);
 
@@ -250,10 +254,11 @@ VSCPRead(long handle, vscpEvent* pEvent, unsigned long timeout)
     int rv = 0;
 
     // Check pointer
-    if (NULL == pEvent)
+    if (NULL == pEvent) {
         return CANAL_ERROR_PARAMETER;
+    }
 
-    CTcpipLink* pdrvObj = getDriverObject(handle);
+    CTcpipSrv* pdrvObj = getDriverObject(handle);
     if (NULL == pdrvObj)
         return CANAL_ERROR_MEMORY;
 
@@ -283,8 +288,9 @@ VSCPRead(long handle, vscpEvent* pEvent, unsigned long timeout)
     vscpEvent* pLocalEvent = pdrvObj->m_receiveList.front();
     pdrvObj->m_receiveList.pop_front();
     pthread_mutex_unlock(&pdrvObj->m_mutexReceiveQueue);
-    if (NULL == pLocalEvent)
+    if (NULL == pLocalEvent) {
         return CANAL_ERROR_MEMORY;
+    }
 
     vscp_copyEvent(pEvent, pLocalEvent);
     vscp_deleteEvent(pLocalEvent);
@@ -299,8 +305,10 @@ VSCPRead(long handle, vscpEvent* pEvent, unsigned long timeout)
 extern "C" unsigned long
 VSCPGetVersion(void)
 {
-    unsigned long ver = MAJOR_VERSION << 24 | MINOR_VERSION << 16 |
-                        RELEASE_VERSION << 8 | BUILD_VERSION;
+    unsigned long ver = MAJOR_VERSION << 24 |
+                        MINOR_VERSION << 16 |
+                        RELEASE_VERSION << 8 |
+                        BUILD_VERSION;
     return ver;
 }
 

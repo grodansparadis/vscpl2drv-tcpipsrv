@@ -1,7 +1,7 @@
 <?xml version = "1.0" encoding = "UTF-8" ?>
 
 <!--
-  2020-11-30
+  2020-12-08
   Example configuration file Unix
   Ake Hedman, akhe@grodansparadis.com
   https://www.grodansparadis.com
@@ -231,7 +231,7 @@
         path-config - Path to driver configuration file.
         guid - GUID for driver. Must be set to valid unique GUID.
     -->
-    <level2driver enable="true">
+    <level2driver enable="false">
 
         <!-- Level II Logger -->
         <driver enable="false"
@@ -366,7 +366,7 @@
         </driver>
 
         <!-- Level II tcp/ip link -->
-        <driver enable="true"
+        <driver enable="false"
             name = "tcpiplink"
             path-driver="/home/akhe/development/VSCP/vscpl2drv-tcpipsrv/linux/vscpl2drv-tcpipsrv.so.1.1.0"
             path-config="/home/akhe/development/VSCP/vscpl2drv-tcpipsrv/debug/conf_standard.xml"
@@ -495,6 +495,39 @@
                                         options="0" />
                         <publish topic="vscp/{{guid}}/{{class}}/{{type}}/{{nickname}}"/>
                 </mqtt>                    
+        </driver>
+
+        <!-- Level II tcp/ip server -->
+        <driver enable="true"
+            name = "tcpipsrv"
+            path-driver="/home/akhe/development/VSCP/vscpl2drv-tcpipsrv/linux/vscpl2drv-tcpipsrv.so.1.0.0"
+            path-config="/home/akhe/development/VSCP/vscpl2drv-tcpipsrv/debug/conf_standard.xml"
+            guid="FF:FF:FF:FF:FF:FF:FF:FC:99:88:FF:EE:DD:CC:BB:AA" >
+
+            <!--
+                The MQTT settings here is mainly for the daemon itself. The info will
+                also be used for drivers that does not have mqtt data defined.
+            -->    
+            <mqtt host="192.168.1.7"
+                port="1883"
+                user="vscp"
+                password="secret"
+                clientid="vscp-drv2-tcpipsrv"
+                qos="0"
+                bcleansession="false"
+                bretain="false"
+                keepalive="60"
+                cafile=""
+                capath=""
+                certfile=""
+                keyfile=""
+                pwkeyfile="" 
+                format="json" >
+                <subscribe topic="vscp/{{guid}}/#"
+                            qos="0"
+                            options="0" />
+                <publish topic="vscp/{{guid}}/{{class}}/{{type}}/{{nickname}}"/>
+            </mqtt>                    
         </driver>
 
     </level2driver>

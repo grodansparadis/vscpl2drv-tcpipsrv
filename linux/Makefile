@@ -4,13 +4,13 @@
 
 # Package version
 MAJOR_VERSION=1
-MINOR_VERSION=1
+MINOR_VERSION=0
 RELEASE_VERSION=0
 BUILD_VERSION=0
-PACKAGE_VERSION=1.1.0
+PACKAGE_VERSION=1.0.0
 
 # STATIC = yes if a static build is requested.
-STATIC=no
+STATIC=
 VSCP_PROJ_BASE_DIR=/var/lib/vscp/
 DESTDIR=/var/lib/vscp/
 
@@ -37,17 +37,17 @@ WARNINGS = -Wall
 VERSION_DEFS = -DMAJOR_VERSION=$(MAJOR_VERSION) -DMINOR_VERSION=$(MINOR_VERSION) \
 	-DRELEASE_VERSION=$(RELEASE_VERSION) -DBUILD_VERSION=$(BUILD_VERSION)
 
-CFLAGS = -std=c99  -DOPENSSL_API_1_1 ${WARNINGS} -fPIC -DCBC -I.. -I../common \
+CFLAGS = -std=c99  -g -O0 -DOPENSSL_API_1_1 -DWITH_WRAP ${WARNINGS} -fPIC -DCBC -I.. -I../common \
 	-I../vscp/src/common -I../vscp/src/vscp/common $(VERSION_DEFS)
-CXXFLAGS = -std=c++11 ${WARNINGS} -D__LINUX__ -fPIC -D_REENTRANT 
-CPPFLAGS = -D__LINUX__ -fPIC  ${WARNINGS} -fno-var-tracking-assignments \
+CXXFLAGS = -std=c++11 ${WARNINGS} -D__LINUX__ -fPIC -D_REENTRANT  -g -O0
+CPPFLAGS = -D__LINUX__ -fPIC  -DWITH_WRAP ${WARNINGS} -fno-var-tracking-assignments \
     -I.. -I@include@ -I../common \
 	-I../vscp/src/common -I../vscp/src/vscp/common \
 	-I../vscp/src/common/third_party/nlohmann \
 	$(VERSION_DEFS)
 
 LDFLAGS = 
-LIBS = -lexpat -lrt -lm -lcrypto -lpthread 
+LIBS = -lmosquitto -lexpat -lssl -lwrap -lz -lrt -lm -lcrypto -lpthread 
 EXTRALIBS =  
 
 DLFLAGS = -g -shared -fPIC
@@ -70,7 +70,7 @@ LIB_SONAME = "vscpl2drv-tcpipsrv.so.$(MAJOR_VERSION)"
 ### Variables: ###
 
 VSCPTCPIP_OBJECTS = vscpl2drv-tcpipsrv.o\
-	tcpiplink.o\
+	tcpipsrv.o\
 	vscpremotetcpif.o\
 	vscphelper.o\
 	vscpdatetime.o\
@@ -81,7 +81,10 @@ VSCPTCPIP_OBJECTS = vscpl2drv-tcpipsrv.o\
 	vscp_aes.o\
 	vscpmd5.o\
 	fastpbkdf2.o\
-	vscpbase64.o
+	vscpbase64.o\
+	userlist.o\
+	clientlist.o\
+	srv.o
 
 ### Targets: ###
 
@@ -103,6 +106,15 @@ vscphelperlib.o: ../../../../vscphelperlib.cpp ../../../../vscphelperlib.h
 
 vscpremotetcpif.o: ../vscp/src/vscp/common/vscpremotetcpif.cpp ../vscp/src/vscp/common/vscpremotetcpif.h
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c ../vscp/src/vscp/common/vscpremotetcpif.cpp -o $@
+
+srv.o: srv.cpp srv.h
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c srv.cpp -o $@
+
+userlist.o: userlist.cpp userlist.h
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c userlist.cpp -o $@
+
+clientlist.o: clientlist.cpp clientlist.h
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c clientlist.cpp -o $@
 
 vscphelper.o: ../vscp/src/vscp/common/vscphelper.cpp ../vscp/src/vscp/common/vscphelper.h
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c ../vscp/src/vscp/common/vscphelper.cpp -o $@
@@ -167,6 +179,7 @@ clean:
 	rm -f ../vscp/src/vscp/common/*.o
 	rm -f ../vscp/src/common/*.o
 	rm -f $(LIB_PLUS_VER)
+	rm -f vscpl2drv-tcpipsrv.so.*
 	rm -f *.a
 	rm -f test
 	rm -f *.deb

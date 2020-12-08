@@ -123,7 +123,7 @@ CVSCPDrvApp::~CVSCPDrvApp()
 
 		if (NULL != m_drvObjArray[ i ]) {
 
-			CTcpipLink *psockcan = getDriverObject(i);
+			CTcpipSrv *psockcan = getDriverObject(i);
 			if (NULL != psockcan) {
 				psockcan->close();
 				delete m_drvObjArray[ i ];
@@ -146,7 +146,7 @@ CVSCPDrvApp::~CVSCPDrvApp()
 // addDriverObject
 //
 
-long CVSCPDrvApp::addDriverObject(CTcpipLink *psockcan)
+long CVSCPDrvApp::addDriverObject(CTcpipSrv *psockcan)
 {
 	long h = 0;
 
@@ -173,7 +173,7 @@ long CVSCPDrvApp::addDriverObject(CTcpipLink *psockcan)
 // getDriverObject
 //
 
-CTcpipLink *CVSCPDrvApp::getDriverObject(long h)
+CTcpipSrv *CVSCPDrvApp::getDriverObject(long h)
 {
 	long idx = h - 1681;
 
@@ -230,7 +230,7 @@ VSCPOpen(const char *pUsername,
 {
 	long h = 0;
 
-	CTcpipLink *pdrvObj = new CTcpipLink();
+	CTcpipSrv *pdrvObj = new CTcpipSrv();
 	if (NULL != pdrvObj) {
 
 		if (pdrvObj->open(pUsername,
@@ -263,7 +263,7 @@ VSCPClose(long handle)
 {
 	int rv = 0;
 
-	CTcpipLink *pdrvObj = theApp->getDriverObject(handle);
+	CTcpipSrv *pdrvObj = theApp->getDriverObject(handle);
 	if (NULL == pdrvObj) return 0;
 	pdrvObj->close();
 	theApp->removeDriverObject(handle);
@@ -280,7 +280,7 @@ VSCPBlockingSend(long handle, const vscpEvent *pEvent, unsigned long timeout)
 {
 	int rv = 0;
 
-	CTcpipLink *pdrvObj = theApp->getDriverObject(handle);
+	CTcpipSrv *pdrvObj = theApp->getDriverObject(handle);
 	if (NULL == pdrvObj) return CANAL_ERROR_MEMORY;
     
     //vscpEvent *pEventNew = new vscpEvent;
@@ -307,7 +307,7 @@ VSCPBlockingReceive(long handle, vscpEvent *pEvent, unsigned long timeout)
     // Check pointer
     if ( NULL == pEvent) return CANAL_ERROR_PARAMETER;
     
-	CTcpipLink *pdrvObj = theApp->getDriverObject(handle);
+	CTcpipSrv *pdrvObj = theApp->getDriverObject(handle);
 	if (NULL == pdrvObj) return CANAL_ERROR_MEMORY;
     
     if ( wxSEMA_TIMEOUT == pdrvObj->m_semReceiveQueue.WaitTimeout( timeout ) ) {

@@ -33,7 +33,11 @@ AC_CHECK_LIB([pthread], [pthread_create])
 AC_CHECK_LIB([crypto], [MD5_Init])
 AC_CHECK_LIB([m],[sin])
 AC_CHECK_LIB([rt],[clock_gettime])
+AC_CHECK_LIB([z], [gzopen])
+AC_CHECK_LIB([wrap], [request_init])
+AC_CHECK_LIB([ssl], [SSL_free])
 AC_CHECK_LIB([expat], [XML_ParserCreate])
+AC_CHECK_LIB([mosquitto], [mosquitto_lib_init])
 
 # Checks for header files.
 AC_HEADER_DIRENT
@@ -93,11 +97,6 @@ MINOR_VERSION=minor_version
 RELEASE_VERSION=release_version
 BUILD_VERSION=build_version
 
-if test "${vscp_static}" = yes ; then
-STATIC="yes"
-else
-STATIC="no"
-fi
 
 dnl
 dnl  openssl version
@@ -119,6 +118,38 @@ dnl AC_ARG_ENABLE(debug,
 dnl [  --enable-debug/--disable-debug          debug mode (default disabled)],
 dnl [vscp_debug=yes],[vscp_debug=no])
 dnl test "${vscp_debug}" != "yes" && vscp_debug="no"
+
+
+dnl
+dnl WITH_WRAP 
+dnl 
+
+AC_ARG_ENABLE(wrap,
+   AS_HELP_STRING([--enable-wrap], [Build wrap tcpd support (default enabled)]) )
+
+dnl
+dnl WRAP 
+dnl
+
+AS_IF([test "x$enable_wrap" != "xno"], [
+  CFLAGS+=" -DWITH_WRAP"
+  CPPFLAGS+=" -DWITH_WRAP"
+])
+
+dnl
+dnl ASAN 
+dnl
+
+AC_ARG_ENABLE(asan,
+   AS_HELP_STRING([--enable-asan], [--enable-asan to build with AddressSanitizer https://github.com/google/sanitizers/wiki/AddressSanitizer (default disabled]))
+
+AS_IF([test "x$enable_asan" == "xyes"], [
+  CFLAGS+=" -fsanitize=address"
+  CPPFLAGS+=" -fsanitize=address"
+  CXXFLAGS+=" -fsanitize=address"
+  LDFLAGS+=" -fsanitize=address"
+])
+
 
 dnl
 dnl Project base installation folder
@@ -158,7 +189,7 @@ dnl Give user some feedback
 echo
 echo   "           VSCP configuration"
 echo   "--------------------------------------------"
-echo   "Version          : ${PACKAGE_VERSION} (major_version.minor_version.release_version.build_version)"
+echo   "Version          : ${PACKAGE_VERSION} (major_version.minor_version.release_version-build_version)"
 echo   "System           : `uname -a` "
 echo   "VSCP install dir : ${DESTDIR}"
 
@@ -170,7 +201,16 @@ else
    echo "build flavour    : release "
 fi
 
+AS_IF([test "x$enable_wrap" = "xno"], 
+   [echo   "tcpd wrap enabled     : no"],
+   [echo   "tcpd wrap enabled     : yes" ])   
+
+AS_IF([test "x$enable_asan" = "xyes"], 
+   [echo   "asan enabled          : yes"],
+   [echo   "asan enabled          : no" ])
+
 dnl Output some debugging information
+echo
 echo   "LIBS             : ${LIBS}"
 echo   "EXTRALIBS        : ${EXTRALIBS}"
 echo   "EXTRACPPFLAGS    : ${CPPFLAGS}"
@@ -178,6 +218,18 @@ echo   "EXTRACXXFLAGS    : ${CXXFLAGS}"
 echo   "EXTRACFLAGS      : ${CFLAGS}"
 echo   "PROJ_SUBDIRS     : ${PROJ_SUBDIRS}"
 
+printf "
+You can tune the compiler flags in vscp-config.
+To build VSCP and friends, type \'make\' followed by \'make install\'
 
+ use --enable-debug to build a debug version; release is default.
+ use --enable-asan to build with AddressSanitizer https://github.com/google/sanitizers/wiki/AddressSanitizer
+ use --disable-wrap to not use the tcpd wrapper (default: eanbled).
+
+ \"make\" -- builds VSCP & Friends.
+ \"make install\" -- builds VSCP & Friends and install system.
+ \"make install-conf\" -- install/restore configuration files.
+ \"make clean\" -- clean project.
+"
 
 dnl vi: set et sts=4 sw=4 com=\:dnl

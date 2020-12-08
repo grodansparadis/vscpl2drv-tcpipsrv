@@ -59,11 +59,23 @@
 /* Define to 1 if you have the `m' library (-lm). */
 #define HAVE_LIBM 1
 
+/* Define to 1 if you have the `mosquitto' library (-lmosquitto). */
+#define HAVE_LIBMOSQUITTO 1
+
 /* Define to 1 if you have the `pthread' library (-lpthread). */
 #define HAVE_LIBPTHREAD 1
 
 /* Define to 1 if you have the `rt' library (-lrt). */
 #define HAVE_LIBRT 1
+
+/* Define to 1 if you have the `ssl' library (-lssl). */
+#define HAVE_LIBSSL 1
+
+/* Define to 1 if you have the `wrap' library (-lwrap). */
+#define HAVE_LIBWRAP 1
+
+/* Define to 1 if you have the `z' library (-lz). */
+#define HAVE_LIBZ 1
 
 /* Define to 1 if you have the <limits.h> header file. */
 #define HAVE_LIMITS_H 1
@@ -255,7 +267,7 @@
 #define LSTAT_FOLLOWS_SLASHED_SYMLINK 1
 
 /* Define if debugging is disabled */
-#define NDEBUG /**/
+/* #undef NDEBUG */
 
 /* Define to the size of a long in bits. */
 #define OSBIT 64
@@ -267,7 +279,7 @@
 #define PACKAGE_NAME "vscpl2drv-tcpipsrv"
 
 /* Define to the full name and version of this package. */
-#define PACKAGE_STRING "vscpl2drv-tcpipsrv 1.1.0"
+#define PACKAGE_STRING "vscpl2drv-tcpipsrv 1.0.0"
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME "vscpl2drv-tcpipsrv"
@@ -276,7 +288,7 @@
 #define PACKAGE_URL ""
 
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "1.1.0"
+#define PACKAGE_VERSION "1.0.0"
 
 /* Define as the return type of signal handlers (`int' or `void'). */
 #define RETSIGTYPE void

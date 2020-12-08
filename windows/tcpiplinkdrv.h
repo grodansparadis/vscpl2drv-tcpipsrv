@@ -91,7 +91,7 @@ public:
 		@parm plog Object to add
 		@return handle or 0 for error
 	*/
-	long addDriverObject( CTcpipLink *pObj );
+	long addDriverObject( CTcpipSrv *pObj );
 
 	/*!
 		Get a driver object from its handle
@@ -100,7 +100,7 @@ public:
 		@return pointer to object or NULL if invalid
 				handle.
 	*/
-	CTcpipLink *getDriverObject( long h );
+	CTcpipSrv *getDriverObject( long h );
 
 	/*!
 		Remove a driver object
@@ -113,7 +113,7 @@ public:
 		The log file object
 		This is the array with driver objects 
 	*/
-	CTcpipLink *m_drvObjArray[ VSCP_TCPIPLINK_DRIVER_MAX_OPEN ];
+	CTcpipSrv *m_drvObjArray[ VSCP_TCPIPLINK_DRIVER_MAX_OPEN ];
 
 	/// Mutex for open/close
 #ifdef WIN32	

@@ -1,13 +1,118 @@
 <?xml version = "1.0" encoding = "UTF-8" ?>
-    <!-- Version 0.0.1    2019-11-05   -->
-    <config debug="true"
-        write="true" 
-        remote-host="192.168.1.7" 
-        remote-port="9598" 
-        remote-user="admin"
-        remote-password="secret" 
-        response-timeout="0"
-        rxfilter=""
-        rxmask=""
-        txfilter=""
-        txmask=""  />
+<!-- Version 0.0.1    2019-11-05   -->
+
+<!--
+    
+    XML configuration
+
+    You can open TCP/IP interfaces on several ports or on
+    on a specific port or on every interface of the computer
+    Default 9598 will listen on all interfaces while
+    "127.0.0.1:9598" only will listen on the specified interface.
+    To specify several interfaces just enter them with a space
+    between them.
+    
+    interface             - Set port and interface to listen on as a comma
+                            separated list.
+    encryption            - Set VSCP AES encryption for interface. aes128, ase192, 
+                            aes256 are valid values.
+    ssl_certificate       - Path to SSL certificat PEM format file. If empty the
+                            TLS system will not be initialised.
+                            Common path: /etc/vscp/certs/server.pem 
+    ssl_certificate_chain - Path to an SSL certificate chain file. As a default, 
+                            the ssl_certificate file is used.
+    ssl_verify_peer       - [yes/no] Enable clients certificate verification by the 
+                            server. Default: no
+    ssl_ca_path           - Name of a directory containing trusted CA certificates. 
+                            Each file in the directory must contain only a single 
+                            CA certificate. The files must be named by the subject 
+                            name’s hash and an extension of “.0”. If there is more 
+                            than one certificate with the same subject name they 
+                            should have extensions ".0", ".1", ".2" and so on 
+                            respectively.
+    ssl_ca_file           - Path to a .pem file containing trusted certificates. 
+                            The file may contain more than one certificate.
+    ssl_verify_depth      - Sets maximum depth of certificate chain. If clients certificate 
+                            chain is longer than the depth set here connection is refused.
+                            Default: 9
+    ssl_default_verify_paths - [yes/no] Loads default trusted certificates locations set at 
+                                openssl compile time. Default is yes
+    ssl_cipher_list       - List of ciphers to present to the client. 
+                            Entries should be separated by colons, commas or spaces.
+                            
+                            Example:
+                            ALL           All available ciphers
+                            ALL:!eNULL    All ciphers excluding NULL ciphers
+                            AES128:!MD5   AES 128 with digests other than MD5
+                            
+                            See https://www.openssl.org/docs/man1.1.0/man1/ciphers.html
+                            in OpenSSL documentation for full list of options and additional 
+                            examples.
+    ssl_protocol_version  - Sets the minimal accepted version of SSL/TLS protocol according to 
+                            the table:
+
+                            SSL2+SSL3+TLS1.0+TLS1.1+TLS1.2 	0 (default)
+                            SSL3+TLS1.0+TLS1.1+TLS1.2 	1
+                            TLS1.0+TLS1.1+TLS1.2 	        2
+                            TLS1.1+TLS1.2 	                3
+                            TLS1.2 	                        4
+
+                            More recent versions of OpenSSL include support for TLS version 1.3. 
+                            To use TLS1.3 only, set ssl_protocol_version to 5.
+    ssl_short_trust       - [yes/no] Enables the use of short lived certificates. This will allow for the 
+                            certificates and keys specified in ssl_certificate, ssl_ca_file and 
+                            ssl_ca_path to be exchanged and reloaded while the server is running.
+
+                            In an automated environment it is advised to first write the new pem file 
+                            to a different filename and then to rename it to the configured pem file 
+                            name to increase performance while swapping the certificate.
+
+                            Disk IO performance can be improved when keeping the certificates and keys 
+                            stored on a tmpfs (linux) on a system with very high throughput.  
+
+                            Default: no                       
+-->
+<config debug="true"
+        write="false"
+        
+        interface="9598"
+        encryption="aes256"
+        ssl_certificate=""
+        ssl_certificate_chain=""
+        ssl_verify_peer="false"
+        ssl_ca_path=""
+        ssl_ca_file=""
+        ssl_verify_depth="9"
+        ssl_default_verify_paths="true"
+        ssl_cipher_list="DES-CBC3-SHA:AES128-SHA:AES128-GCM-SHA256"
+        ssl_protocol_version="3"
+        ssl_short_trust="false" >
+
+    <!--
+        Holds information about one (at least) or more users
+        Use vscp-mkpassword to generate a new password
+        Privilege is "admin" or "user" or comma seperated list
+        Same information is used for accessing the daemon
+        through the TCP/IP interface as through the web-interface
+    -->
+    <users>
+        <user name="user"                
+            password="D35967DEE4CFFB214124DFEEA7778BB0;582BCA078604C925852CDDEE0A8475556DEAA6DC6EFB004A353094900C97D3DE"
+            privilege="user"
+            allowfrom=""
+            filter=""
+            events=""
+            fullname="Sample user"
+            note="A normal user. username='user' password='secret'" />
+
+        <user name="special"                
+            password="D35967DEE4CFFB214124DFEEA7778BB0;582BCA078604C925852CDDEE0A8475556DEAA6DC6EFB004A353094900C97D3DE"
+            privilege="special"
+            allowfrom=""
+            filter=""
+            events=""
+            fullname="Special user"
+            note="A normal user. username='user' password='secret'" />
+     </users>
+
+</setup>

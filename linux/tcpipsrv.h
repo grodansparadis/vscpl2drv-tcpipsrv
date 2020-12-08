@@ -41,7 +41,11 @@
 #include <dllist.h>
 #include <guid.h>
 #include <vscp.h>
+#include "srv.h"
 #include <vscpremotetcpif.h>
+#include "clientlist.h"
+
+#define DRIVER_COPYRIGHT "Copyright © 2000-2020 Ake Hedman, Grodans Paradis AB, https://www.grodansparadis.com"
 
 // Seconds before trying to reconnect to a broken connection
 #define VSCP_TCPIPLINK_DEFAULT_RECONNECT_TIME 30
@@ -60,15 +64,16 @@ class CWrkSendTread;
 class CWrkReceiveTread;
 class VscpRemoteTcpIf;
 class CHLO;
+class CClientItem;
 
-class CTcpipLink
+class CTcpipSrv
 {
   public:
     /// Constructor
-    CTcpipLink();
+    CTcpipSrv();
 
     /// Destructor
-    virtual ~CTcpipLink();
+    virtual ~CTcpipSrv();
 
     /*!
         Open
@@ -114,6 +119,58 @@ class CTcpipLink
         Add event to send queue
      */
     bool addEvent2SendQueue(const vscpEvent* pEvent);
+
+    /*!
+        Starting TCP/IP worker thread
+        @return true on success
+     */
+    bool startTcpipSrvThread(void);
+
+    /*!
+        Stop the TCP/IP worker thread
+        @return true on success
+     */
+    bool stopTcpipSrvThread(void);
+
+    /*!
+        Add a new client to the client list
+
+        @param Pointer to client that should be added.
+        @param Normally not used but can be used to set a special
+        client id.
+        @return True on success.
+    */
+    bool addClient(CClientItem* pClientItem, uint32_t id = 0);
+
+    /*!
+        Add a new client to the client list using GUID. 
+
+        This add client method is for drivers that specify a
+        full GUID (two lsb nilled).
+
+        @param Pointer to client that should be added.
+        @param guid The guid that is used for the client. Two least
+        significant bytes will be set to zero.
+        @return True on success.
+     */
+    bool addClient(CClientItem* pClientItem, cguid& guid);
+
+    /*!
+        Remove a new client from the client list
+
+        @param pClientItem Pointer to client that should be added.
+     */
+    void removeClient(CClientItem* pClientItem);
+
+    // Send event to host
+    bool sendEvent( CClientItem *pClientItem, vscpEvent *pEvent);
+
+    /*!
+        Generate a random session key from a string key
+        @param pKey Null terminated string key (max 255 characters)
+        @param pSid Pointer to 33 byte sid that will receive sid
+     */
+    bool generateSessionId(const char* pKey, char* pSid);
 
   public:
 
@@ -165,6 +222,55 @@ class CTcpipLink
 
     /// VSCP remote server receive interface
     VscpRemoteTcpIf m_srvRemoteReceive;
+
+    /////////////////////////////////////////////////////////
+    //                      TCP/IP server
+    /////////////////////////////////////////////////////////
+
+    // Server will be started if set to true (by configuration (db/xml)
+    bool m_enableTcpip;
+
+    // Enable encryption on tcp/ip interface if enabled.
+    // 0 = Disabled
+    // 1 = AES-128
+    // 2 = AES-192
+    // 3 = AES-256
+    uint8_t m_encryptionTcpip;
+
+    // Interface used for TCP/IP connection  (only one)
+    std::string m_strTcpInterfaceAddress;
+
+    // Data object for the tcp/ip Listen thread
+    tcpipListenThreadObj* m_ptcpipSrvObject;
+
+    // Listen thread for tcp/ip connections
+    pthread_t m_tcpipListenThread;
+
+    // tcp/ip SSL settings
+    std::string m_tcpip_ssl_certificate;
+    std::string m_tcpip_ssl_certificate_chain;
+    uint8_t m_tcpip_ssl_verify_peer; // no=0, optional=1, yes=2
+    std::string m_tcpip_ssl_ca_path;
+    std::string m_tcpip_ssl_ca_file;
+    uint8_t m_tcpip_ssl_verify_depth;
+    bool m_tcpip_ssl_default_verify_paths;
+    std::string m_tcpip_ssl_cipher_list;
+    uint8_t m_tcpip_ssl_protocol_version;
+    bool m_tcpip_ssl_short_trust;
+
+    //**************************************************************************
+    //                                CLIENTS
+    //**************************************************************************
+
+    // The list with active clients. (protecting mutex in object)
+    CClientList m_clientList;
+
+    // Mutex for client queue
+    pthread_mutex_t m_mutex_clientList;
+
+    // The list of users
+    CUserList m_userList;   
+    pthread_mutex_t m_mutex_UserList;
 
     // Queue
     std::list<vscpEvent*> m_sendList;

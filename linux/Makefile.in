@@ -70,7 +70,7 @@ LIB_SONAME = "vscpl2drv-tcpipsrv.so.$(MAJOR_VERSION)"
 ### Variables: ###
 
 VSCPTCPIP_OBJECTS = vscpl2drv-tcpipsrv.o\
-	tcpiplink.o\
+	tcpipsrv.o\
 	vscpremotetcpif.o\
 	vscphelper.o\
 	vscpdatetime.o\
@@ -81,7 +81,10 @@ VSCPTCPIP_OBJECTS = vscpl2drv-tcpipsrv.o\
 	vscp_aes.o\
 	vscpmd5.o\
 	fastpbkdf2.o\
-	vscpbase64.o
+	vscpbase64.o\
+	userlist.o\
+	clientlist.o\
+	srv.o
 
 ### Targets: ###
 
@@ -103,6 +106,15 @@ vscphelperlib.o: ../../../../vscphelperlib.cpp ../../../../vscphelperlib.h
 
 vscpremotetcpif.o: ../vscp/src/vscp/common/vscpremotetcpif.cpp ../vscp/src/vscp/common/vscpremotetcpif.h
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c ../vscp/src/vscp/common/vscpremotetcpif.cpp -o $@
+
+srv.o: srv.cpp srv.h
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c srv.cpp -o $@
+
+userlist.o: userlist.cpp userlist.h
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c userlist.cpp -o $@
+
+clientlist.o: clientlist.cpp clientlist.h
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c clientlist.cpp -o $@
 
 vscphelper.o: ../vscp/src/vscp/common/vscphelper.cpp ../vscp/src/vscp/common/vscphelper.h
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c ../vscp/src/vscp/common/vscphelper.cpp -o $@
@@ -167,6 +179,7 @@ clean:
 	rm -f ../vscp/src/vscp/common/*.o
 	rm -f ../vscp/src/common/*.o
 	rm -f $(LIB_PLUS_VER)
+	rm -f vscpl2drv-tcpipsrv.so.*
 	rm -f *.a
 	rm -f test
 	rm -f *.deb
