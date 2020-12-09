@@ -1,0 +1,55 @@
+{
+    "enable-debug" : true,
+    "enable-write" : true,
+    "vscpkeyfile" : "/etc/vscp/vscp.key",
+    "maxoutque" : 32000,
+    "maxinque" : 32000,
+    "interface" : "9598",
+    "encryption" : "aes256",
+    "ssl_certificate" : "",
+    "ssl_certificate_chain" : "",
+    "ssl_verify_peer" : 0,
+    "ssl_ca_path" : "",
+    "ssl_ca_file" : "",
+    "ssl_verify_depth" : 9,
+    "ssl_default_verify_paths" : true,
+    "ssl_cipher_list" : "DES-CBC3-SHA:AES128-SHA:AES128-GCM-SHA256",
+    "ssl_protocol_version" : 3,
+    "ssl_short_trust" : false,
+    "users" : [
+        {
+            "name" : "admin",
+            "password" : "D35967DEE4CFFB214124DFEEA7778BB0;582BCA078604C925852CDDEE0A8475556DEAA6DC6EFB004A353094900C97D3DE",
+            "privilege" : "admin",
+            "allowfrom" : "",
+            "filter" : "",
+            "mask" : "",
+            "allowevents" : "",
+            "fullname" : "Miss. Super user",
+            "note" : "A normal user. username='admin' password='secret'"
+        },
+        {
+            "name" : "user",
+            "password" : "D35967DEE4CFFB214124DFEEA7778BB0;582BCA078604C925852CDDEE0A8475556DEAA6DC6EFB004A353094900C97D3DE",
+            "privilege" : "user",
+            "allowfrom" : "",
+            "filter" : "",
+            "mask" : "",
+            "allowevents" : "",
+            "fullname" : "Mr. Sample user",
+            "note" : "A normal user. username='user' password='secret'"
+        },
+        {
+            "name" : "special",
+            "password" : "D35967DEE4CFFB214124DFEEA7778BB0;582BCA078604C925852CDDEE0A8475556DEAA6DC6EFB004A353094900C97D3DE",
+            "privilege" : "user",
+            "allowfrom" : "",
+            "filter" : "",
+            "mask" : "",
+            "allowevents" : "",
+            "fullname" : "Mrs. Special user",
+            "note" : "A normal user. username='user' password='secret'"    
+        }
+    ]
+}
+

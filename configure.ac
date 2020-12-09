@@ -37,7 +37,6 @@ AC_CHECK_LIB([z], [gzopen])
 AC_CHECK_LIB([wrap], [request_init])
 AC_CHECK_LIB([ssl], [SSL_free])
 AC_CHECK_LIB([expat], [XML_ParserCreate])
-AC_CHECK_LIB([mosquitto], [mosquitto_lib_init])
 
 # Checks for header files.
 AC_HEADER_DIRENT
@@ -109,15 +108,6 @@ else
 echo "openssl 1.0 libs will be used."
 CFLAGS+=" -DOPENSSL_API_1_0"
 fi
-
-dnl
-dnl  Debugging mode
-dnl      Done automatically now
-
-dnl AC_ARG_ENABLE(debug,
-dnl [  --enable-debug/--disable-debug          debug mode (default disabled)],
-dnl [vscp_debug=yes],[vscp_debug=no])
-dnl test "${vscp_debug}" != "yes" && vscp_debug="no"
 
 
 dnl

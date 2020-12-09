@@ -75,6 +75,7 @@
 <config debug="true"
         write="false"
         
+        vscpkeyfile="/etc/vscp/vscpkey"
         interface="9598"
         encryption="aes256"
         ssl_certificate=""

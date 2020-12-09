@@ -239,7 +239,8 @@ VSCPWrite(long handle, const vscpEvent* pEvent, unsigned long timeout)
         return CANAL_ERROR_MEMORY;
     }
 
-    pdrvObj->addEvent2SendQueue(pEvent);
+    //pdrvObj->addEvent2SendQueue(pEvent);
+    pdrvObj->sendEventAllClients(pEvent);
 
     return CANAL_ERROR_SUCCESS;
 }
@@ -293,7 +294,7 @@ VSCPRead(long handle, vscpEvent* pEvent, unsigned long timeout)
     }
 
     vscp_copyEvent(pEvent, pLocalEvent);
-    vscp_deleteEvent(pLocalEvent);
+    vscp_deleteEvent_v2(&pLocalEvent);
 
     return CANAL_ERROR_SUCCESS;
 }

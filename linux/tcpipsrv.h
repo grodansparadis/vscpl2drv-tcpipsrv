@@ -45,6 +45,13 @@
 #include <vscpremotetcpif.h>
 #include "clientlist.h"
 
+#include <json.hpp>  // Needs C++11  -std=c++11
+
+// https://github.com/nlohmann/json
+using json = nlohmann::json;
+
+const uint16_t MAX_ITEMS_IN_QUEUE = 32000;
+
 #define DRIVER_COPYRIGHT "Copyright © 2000-2020 Ake Hedman, Grodans Paradis AB, https://www.grodansparadis.com"
 
 // Seconds before trying to reconnect to a broken connection
@@ -116,9 +123,14 @@ class CTcpipSrv
     bool eventExToReceiveQueue(vscpEventEx& ex);
 
     /*!
-        Add event to send queue
+      Add event to send queue
      */
     bool addEvent2SendQueue(const vscpEvent* pEvent);
+
+    /*!
+      Add event to receive queue
+    */
+    bool addEvent2ReceiveQueue(const vscpEvent* pEvent);
 
     /*!
         Starting TCP/IP worker thread
@@ -166,19 +178,40 @@ class CTcpipSrv
     bool sendEvent( CClientItem *pClientItem, vscpEvent *pEvent);
 
     /*!
+      Send event to specific client
+
+      @param pClientItem Pointer to client that should received event.
+      @param pEvent Pointer to VSCP event that should be sent.
+      @return True on success, false on failure.
+    */
+    bool sendEventToClient(CClientItem* pClientItem, const vscpEvent* pEvent);
+
+    /*!
+      Send event to all clients
+
+      @param pEvent Pointer to VSCP event that should be sent.
+      @return True on success, false on failure.
+    */
+    bool sendEventAllClients(const vscpEvent* pEvent);
+
+    /*!
         Generate a random session key from a string key
         @param pKey Null terminated string key (max 255 characters)
         @param pSid Pointer to 33 byte sid that will receive sid
      */
     bool generateSessionId(const char* pKey, char* pSid);
 
+    /*!
+      Read encryption key
+      @param path Path to file holding encryption key.
+      @return True if read OK.
+    */
+    bool readEncryptionKey(const std::string& path);
+
   public:
 
-    /// Debug flag
-    bool m_bDebug;
-
-    /// Write flags
-    bool m_bAllowWrite;
+    /// Parsed Config file
+    json m_j_config;
 
     /// Run flag
     bool m_bQuit;
@@ -186,23 +219,11 @@ class CTcpipSrv
     // Our GUID
     cguid m_guid;
 
-    // Path to configuration file
+    /// Path to configuration file
     std::string m_path;
 
-    /// server supplied host
-    std::string m_hostRemote;
-
-    /// Server supplied port
-    int m_portRemote;
-
-    /// Server supplied username
-    std::string m_usernameRemote;
-
-    /// Server supplied password
-    std::string m_passwordRemote;
-
-    /// Send channel id
-    uint32_t txChannelID;
+    /// Encryption key for passwords
+    std::string m_vscpkey;
 
     /// Filter for receive
     vscpEventFilter m_rxfilter;
@@ -210,35 +231,16 @@ class CTcpipSrv
     /// Filter for transmitt
     vscpEventFilter m_txfilter;
 
-    // TCP/IP link response timeout
-    uint32_t m_responseTimeout;
-
-    /// Worker threads
-    pthread_t m_pthreadSend;
-    pthread_t m_pthreadReceive;
-
-    /// VSCP remote server send interface
-    VscpRemoteTcpIf m_srvRemoteSend;
-
-    /// VSCP remote server receive interface
-    VscpRemoteTcpIf m_srvRemoteReceive;
-
     /////////////////////////////////////////////////////////
     //                      TCP/IP server
     /////////////////////////////////////////////////////////
-
-    // Server will be started if set to true (by configuration (db/xml)
-    bool m_enableTcpip;
 
     // Enable encryption on tcp/ip interface if enabled.
     // 0 = Disabled
     // 1 = AES-128
     // 2 = AES-192
     // 3 = AES-256
-    uint8_t m_encryptionTcpip;
-
-    // Interface used for TCP/IP connection  (only one)
-    std::string m_strTcpInterfaceAddress;
+    //uint8_t m_encryptionTcpip;
 
     // Data object for the tcp/ip Listen thread
     tcpipListenThreadObj* m_ptcpipSrvObject;
@@ -246,17 +248,6 @@ class CTcpipSrv
     // Listen thread for tcp/ip connections
     pthread_t m_tcpipListenThread;
 
-    // tcp/ip SSL settings
-    std::string m_tcpip_ssl_certificate;
-    std::string m_tcpip_ssl_certificate_chain;
-    uint8_t m_tcpip_ssl_verify_peer; // no=0, optional=1, yes=2
-    std::string m_tcpip_ssl_ca_path;
-    std::string m_tcpip_ssl_ca_file;
-    uint8_t m_tcpip_ssl_verify_depth;
-    bool m_tcpip_ssl_default_verify_paths;
-    std::string m_tcpip_ssl_cipher_list;
-    uint8_t m_tcpip_ssl_protocol_version;
-    bool m_tcpip_ssl_short_trust;
 
     //**************************************************************************
     //                                CLIENTS
@@ -269,12 +260,17 @@ class CTcpipSrv
     pthread_mutex_t m_mutex_clientList;
 
     // The list of users
-    CUserList m_userList;   
+    CUserList m_userList;
     pthread_mutex_t m_mutex_UserList;
 
     // Queue
     std::list<vscpEvent*> m_sendList;
     std::list<vscpEvent*> m_receiveList;
+
+    // ------------------------------------------------------------------------
+
+    // Maximum number of events in the outgoing queue
+    uint16_t m_maxItemsInClientReceiveQueue;
 
     /*!
         Event object to indicate that there is an event in the output queue
@@ -287,4 +283,4 @@ class CTcpipSrv
     pthread_mutex_t m_mutexReceiveQueue;
 };
 
-#endif // !defined(VSCPTCPIPLINK_H__6F5CD90E_ACF7_459A_9ACB_849A57595639__INCLUDED_)
+#endif  // !defined(VSCPTCPIPLINK_H__6F5CD90E_ACF7_459A_9ACB_849A57595639__INCLUDED_)

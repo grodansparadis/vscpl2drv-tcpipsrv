@@ -59,9 +59,6 @@
 /* Define to 1 if you have the `m' library (-lm). */
 #define HAVE_LIBM 1
 
-/* Define to 1 if you have the `mosquitto' library (-lmosquitto). */
-#define HAVE_LIBMOSQUITTO 1
-
 /* Define to 1 if you have the `pthread' library (-lpthread). */
 #define HAVE_LIBPTHREAD 1
 

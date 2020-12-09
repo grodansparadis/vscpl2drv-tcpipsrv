@@ -38,11 +38,14 @@ VERSION_DEFS = -DMAJOR_VERSION=$(MAJOR_VERSION) -DMINOR_VERSION=$(MINOR_VERSION)
 	-DRELEASE_VERSION=$(RELEASE_VERSION) -DBUILD_VERSION=$(BUILD_VERSION)
 
 CFLAGS = -std=c99 @CFLAGS@ ${WARNINGS} -fPIC -DCBC -I@top_srcdir@ -I../common \
-	-I../vscp/src/common -I../vscp/src/vscp/common $(VERSION_DEFS)
+	-I../vscp/src/common \
+	-I../vscp/src/vscp/common \
+	$(VERSION_DEFS)
 CXXFLAGS = -std=c++11 ${WARNINGS} -D__LINUX__ -fPIC -D_REENTRANT @CXXFLAGS@
 CPPFLAGS = -D__LINUX__ -fPIC @CPPFLAGS@ ${WARNINGS} -fno-var-tracking-assignments \
     -I@top_srcdir@ -I@include@ -I../common \
 	-I../vscp/src/common -I../vscp/src/vscp/common \
+	-I../vscp/src/common/third_party/ \
 	-I../vscp/src/common/third_party/nlohmann \
 	$(VERSION_DEFS)
 
@@ -64,7 +67,7 @@ datadir = ${prefix}/share
 includedir = ${prefix}/include
 DLLPREFIX = lib
 
-LIB_PLUS_VER = "vscpl2drv-tcpipsrv.so.$(MAJOR_VERSION).$(MINOR_VERSION).$(RELEASE_VERSION)"
+LIB_PLUS_VER = "vscpl2drv-tcpipsrv.so"
 LIB_SONAME = "vscpl2drv-tcpipsrv.so.$(MAJOR_VERSION)"
 
 ### Variables: ###
@@ -88,14 +91,14 @@ VSCPTCPIP_OBJECTS = vscpl2drv-tcpipsrv.o\
 
 ### Targets: ###
 
-all: $(LIB_PLUS_VER) test
+all: $(LIB_PLUS_VER)
 
 test:  test.o $(PROJOBJS)
 	$(CXX) -o $@ test.o $(PROJOBJS) $(LDFLAGS)  $(EXTRALIBS)
 
 # Build the Linux DL
 $(LIB_PLUS_VER): $(VSCPTCPIP_OBJECTS)
-	$(CXX) -Wl,-soname,$(LIB_SONAME) -o $@ $(VSCPTCPIP_OBJECTS) $(DLFLAGS)  $(EXTRALIBS) 
+	$(CXX) -Wl,-soname,$(LIB_SONAME) -o $@ $(VSCPTCPIP_OBJECTS) $(DLFLAGS) $(LIBS) $(EXTRALIBS) 
 	ar rcs libvscpl2drv-tcpipsrv.a $(VSCPTCPIP_OBJECTS)
 
 tcpiplink.o: tcpiplink.cpp tcpiplink.h
@@ -153,17 +156,17 @@ install: all
 	$(INSTALL_DIR) $(DESTDIR)/drivers/level2/
 	$(STRIP) $(LIB_PLUS_VER)
 	$(INSTALL_PROGRAM) $(LIB_PLUS_VER) $(DESTDIR)/drivers/level2/
-	ln -fs $(DESTDIR)/drivers/level2//$(LIB_PLUS_VER) $(DESTDIR)/drivers/level2//vscpl2drv-tcpipsrv.so
-	ln -fs $(DESTDIR)/drivers/level2//$(LIB_PLUS_VER) $(DESTDIR)/drivers/level2//vscpl2drv-tcpipsrv.so.$(MAJOR_VERSION)
-	ln -fs $(DESTDIR)/drivers/level2//$(LIB_PLUS_VER) $(DESTDIR)/drivers/level2//vscpl2drv-tcpipsrv.so.$(MAJOR_VERSION).$(MINOR_VERSION)
-	$(INSTALL_PROGRAM) libvscpl2drv-tcpipsrv.a $(DESTDIR)/drivers/level2/
+#	ln -fs $(DESTDIR)/drivers/level2//$(LIB_PLUS_VER) $(DESTDIR)/drivers/level2//vscpl2drv-tcpipsrv.so
+#	ln -fs $(DESTDIR)/drivers/level2//$(LIB_PLUS_VER) $(DESTDIR)/drivers/level2//vscpl2drv-tcpipsrv.so.$(MAJOR_VERSION)
+#	ln -fs $(DESTDIR)/drivers/level2//$(LIB_PLUS_VER) $(DESTDIR)/drivers/level2//vscpl2drv-tcpipsrv.so.$(MAJOR_VERSION).$(MINOR_VERSION)
+#	$(INSTALL_PROGRAM) libvscpl2drv-tcpipsrv.a $(DESTDIR)/drivers/level2/
 
 uninstall: 	
 	rm -f  $(DESTDIR)/drivers/level2/$(LIB_PLUS_VER)
-	rm -f  $(DESTDIR)/drivers/level2/vscpl2drv-tcpipsrv.so
-	rm -f  $(DESTDIR)/drivers/level2/vscpl2drv-tcpipsrv.so.$(MAJOR_VERSION)
-	rm -f  $(DESTDIR)/drivers/level2/vscpl2drv-tcpipsrv.so.$(MAJOR_VERSION).$(MINOR_VERSION)
-	rm -f  $(DESTDIR)/drivers/level2/libvscpl2drv-tcpipsrv.a
+#	rm -f  $(DESTDIR)/drivers/level2/vscpl2drv-tcpipsrv.so
+#	rm -f  $(DESTDIR)/drivers/level2/vscpl2drv-tcpipsrv.so.$(MAJOR_VERSION)
+#	rm -f  $(DESTDIR)/drivers/level2/vscpl2drv-tcpipsrv.so.$(MAJOR_VERSION).$(MINOR_VERSION)
+#	rm -f  $(DESTDIR)/drivers/level2/libvscpl2drv-tcpipsrv.a
 
 install-strip: install
 
@@ -179,6 +182,7 @@ clean:
 	rm -f ../vscp/src/vscp/common/*.o
 	rm -f ../vscp/src/common/*.o
 	rm -f $(LIB_PLUS_VER)
+	rm -f vscpl2drv-tcpipsrv.so
 	rm -f vscpl2drv-tcpipsrv.so.*
 	rm -f *.a
 	rm -f test
