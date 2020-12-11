@@ -184,7 +184,7 @@ CTcpipSrv::doLoadConfig(void)
         return false;
     }
 
-    if (!readEncryptionKey(m_j_config.value("vscpkeyfile", ""))) {
+    if (!readEncryptionKey(m_j_config.value("vscp-key-file", ""))) {
         syslog(LOG_ERR, "[vscpl2drv-tcpipsrv] WARNING!!! Default key will be used.");
         // Not secure of course but something...
         m_vscpkey = "Carpe diem quam minimum credula postero";
@@ -205,17 +205,60 @@ CTcpipSrv::doLoadConfig(void)
 
         if (!m_userList.addUser((*it).value("name", ""),
                                     (*it).value("password", ""),
-                                    (*it).value("fullname", ""),
+                                    (*it).value("full-name", ""),
                                     (*it).value("note", ""),
                                     m_vscpkey,
                                     &receive_filter,
                                     (*it).value("privilege", "user"),
-                                    (*it).value("allowfrom", ""),
-                                    (*it).value("allowevents", ""),
+                                    (*it).value("allow-from", ""),
+                                    (*it).value("allow-events", ""),
                                     (*it).value("flags", 0))) {
             syslog(LOG_ERR, "[vscpl2drv-tcpipsrv] Failed to add client %s.",(*it).dump().c_str());
         }
     }
+
+    vscpEvent ev;
+    ev.vscp_class = VSCP_CLASS2_HLO;
+    ev.vscp_type = VSCP2_TYPE_HLO_COMMAND;
+
+    std::string jj = "{\"op\" : 1, \"name\": \"\"}";
+    json j;
+    j["op"] = "noop";
+    j["arg"]["currency"] = "USD";
+    j["arg"]["value"] = 42.99;
+    j["arr"] = json::array();
+    j["arr"][0]["ettan"] = 1;
+    j["arr"][0]["tvan"] = 2;
+    j["arr"][1]["ettan"] = 1;
+    j["arr"][1]["tvan"] = 2;
+    j["arr"][2]["ettan"] = 1;
+    j["arr"][2]["tvan"] = 2;
+    printf("%s\n",j.dump().c_str());
+
+
+    json aa;
+    aa["ettan"] = 55;
+    aa["tva"] = 66;
+    j["arr"][1] = aa;
+    j["arr"][3] = aa;
+    printf("%s\n",j.dump().c_str());
+    j["arr"].erase(1);
+
+
+    printf("%s\n",j.dump().c_str());
+
+
+    ev.pdata = new uint8_t[200];
+
+    memset(ev.pdata, 0, sizeof(ev.pdata));
+    for ( int i=0; i<16; i++) {
+        ev.pdata[i] = 11 * i;
+    }
+    ev.pdata[16] = 0x20;  // JSON, no encryption
+    memcpy(ev.pdata+17, j.dump().c_str(), j.dump().length());
+    ev.sizeData = 16 + 1 + j.dump().length();
+
+    handleHLO(&ev);
 
     return true;
 }
@@ -240,7 +283,6 @@ CTcpipSrv::doSaveConfig(void)
 bool
 CTcpipSrv::handleHLO(vscpEvent* pEvent)
 {
-    char buf[3000];     // Working buffer
     vscpEventEx ex;
 
     // Check pointers
@@ -250,11 +292,60 @@ CTcpipSrv::handleHLO(vscpEvent* pEvent)
         return false;
     }
 
-    // CHLO hlo;
-    // if (!parseHLO(pEvent->sizeData, pEvent->pdata, &hlo)) {
+    // > 18  pos 0-15 = GUID, 16 type >> 4, encryption & 0x0f
+    // JSON if type = 2
+    // JSON from 17 onwards
+
+    //CHLO hlo;
+    //if (!hlo.parseHLO(j, pEvent )) {
     //     syslog(LOG_ERR, "[vscpl2drv-tcpipsrv] Failed to parse HLO.");
     //     return false;
     // }
+
+    // Must be HLO command event
+    if ((pEvent->vscp_class != VSCP_CLASS2_HLO) &&
+        (pEvent->vscp_type != VSCP2_TYPE_HLO_COMMAND)) {
+        return false;
+    }
+
+    // Get GUID / encryption / type 
+    cguid hlo_guid(pEvent->pdata);
+    uint8_t hlo_encryption = pEvent->pdata[16] & 0x0f;
+    uint8_t hlo_type = (pEvent->pdata[16] >> 4) & 0x0f;
+
+    char buf[512];
+    memset(buf,0,sizeof(buf));
+    memcpy(buf, (pEvent->pdata + 17), pEvent->sizeData);
+    auto j = json::parse(buf);
+    printf("%s\n", j.dump().c_str());
+
+    if (m_j_config["users"].is_array()) {
+        printf("Yes it's an array %lu - %s\n", 
+                    m_j_config["users"].size(),
+                    m_j_config["users"][0]["name"].get<std::string>().c_str());
+    }
+
+    // Must be an operation
+    if (!j["op"].is_string() || 
+             j["op"].is_null()) {
+        syslog(LOG_ERR,"[vscpl2drv-tcpipsrv] HLO-command: Missing op [%s]",j.dump().c_str());         
+        return false;
+    }
+
+    if (j["arg"].is_object() && 
+             !j["arg"].is_null()) {
+        printf("Argument is object\n");
+    }
+
+    if (j["arg"].is_string() && 
+             !j["arg"].is_null()) {
+        printf("Argument is string\n");
+    }
+
+    if (j["arg"].is_number() && 
+             !j["arg"].is_null()) {
+        printf("Argument is number\n");
+    }
 
     // Make HLO response event
     ex.obid = 0;
@@ -265,181 +356,523 @@ CTcpipSrv::handleHLO(vscpEvent* pEvent)
     ex.vscp_type = VSCP2_TYPE_HLO_RESPONSE;
     m_guid.writeGUID(ex.GUID);
 
-    switch (hlo.m_op) {
+    json j_response;
 
-        case HLO_OP_NOOP:
+    if ( j.value("op","") == "noop") {
+        // Send positive response            
+        j_response["op"] = "vscp-reply";
+        j_response["name"] = "noop";
+        j_response["result"] = "OK";
+        j_response["description"] = "NOOP commaned executed correctly.";
 
-            // Send positive response
-            json j_response;
-            j_response["op"] = "vscp-reply";
-            j_response["name"] = "noop";
-            j_response["result"] = "OK";
-            j_response["description"] = "NOOP commaned executed correctly.";
+        memset(ex.data, 0, sizeof(ex.data));
+        ex.sizeData = strlen(buf);
+        memcpy(ex.data, buf, ex.sizeData);        
+    }
+    else if ( j.value("op","") == "readvar") {
+        readVariable(ex, j);
+    }
+    else if ( j.value("op","") == "writevar") {
+        writeVariable(ex, j);
+    }
+    else if ( j.value("op","") == "delvar") {
+        deleteVariable(ex, j);
+    }
+    else if ( j.value("op","") == "load") {
+        doLoadConfig();
+    }
+    else if ( j.value("op","") == "save") {
+        doSaveConfig();
+    }
+    else if ( j.value("op","") == "stop") {
+        stop();
+    }
+    else if ( j.value("op","") == "start") {
+        start();
+    }
+    else if ( j.value("op","") == "restart") {
+        restart();
+    }
 
-            memset(ex.data, 0, sizeof(ex.data));
-            ex.sizeData = strlen(buf);
-            memcpy(ex.data, buf, ex.sizeData);
+    // Put event in receive queue
+    return eventExToReceiveQueue(ex);
 
-            // Put event in receive queue
-            return eventExToReceiveQueue(ex);
+}
 
-        case HLO_OP_READ_VAR:
-            // if ("REMOTE-HOST" == hlo.m_name) {
-            //     sprintf(buf,
-            //             HLO_READ_VAR_REPLY_TEMPLATE,
-            //             "remote-host",
-            //             "OK",
-            //             VSCP_REMOTE_VARIABLE_CODE_STRING,
-            //             vscp_convertToBase64(m_hostRemote).c_str());
-            // } else if ("REMOTE-PORT" == hlo.m_name) {
-            //     char ibuf[80];
-            //     sprintf(ibuf, "%d", m_portRemote);
-            //     sprintf(buf,
-            //             HLO_READ_VAR_REPLY_TEMPLATE,
-            //             "remote-port",
-            //             "OK",
-            //             VSCP_REMOTE_VARIABLE_CODE_INTEGER,
-            //             vscp_convertToBase64(ibuf).c_str());
-            // } else if ("REMOTE-USER" == hlo.m_name) {
-            //     sprintf(buf,
-            //             HLO_READ_VAR_REPLY_TEMPLATE,
-            //             "remote-user",
-            //             "OK",
-            //             VSCP_REMOTE_VARIABLE_CODE_INTEGER,
-            //             vscp_convertToBase64(m_usernameRemote).c_str());
-            // } else if ("REMOTE-PASSWORD" == hlo.m_name) {
-            //     sprintf(buf,
-            //             HLO_READ_VAR_REPLY_TEMPLATE,
-            //             "remote-password",
-            //             "OK",
-            //             VSCP_REMOTE_VARIABLE_CODE_INTEGER,
-            //             vscp_convertToBase64(m_passwordRemote).c_str());
-            // } else if ("TIMEOUT-RESPONSE" == hlo.m_name) {
-            //     char ibuf[80];
-            //     sprintf(ibuf, "%lu", (long unsigned int)m_responseTimeout);
-            //     sprintf(buf,
-            //             HLO_READ_VAR_REPLY_TEMPLATE,
-            //             "timeout-response",
-            //             "OK",
-            //             VSCP_REMOTE_VARIABLE_CODE_LONG,
-            //             vscp_convertToBase64(ibuf).c_str());
-            // }
-            break;
+///////////////////////////////////////////////////////////////////////////////
+// readVariable
+//
 
-        case HLO_OP_WRITE_VAR:
-            // if ("REMOTE-HOST" == hlo.m_name) {
-            //     if (VSCP_REMOTE_VARIABLE_CODE_STRING != hlo.m_varType) {
-            //         // Wrong variable type
-            //         sprintf(buf,
-            //                 HLO_READ_VAR_ERR_REPLY_TEMPLATE,
-            //                 "remote-host",
-            //                 ERR_VARIABLE_WRONG_TYPE,
-            //                 "Variable type should be string.");
-            //     } else {
-            //         m_hostRemote = hlo.m_value;
-            //         sprintf(buf,
-            //                 HLO_READ_VAR_REPLY_TEMPLATE,
-            //                 "enable-sunrise",
-            //                 "OK",
-            //                 VSCP_REMOTE_VARIABLE_CODE_STRING,
-            //                 vscp_convertToBase64(m_hostRemote).c_str());
-            //     }
-            // } else if ("REMOTE-PORT" == hlo.m_name) {
-            //     if (VSCP_REMOTE_VARIABLE_CODE_INTEGER != hlo.m_varType) {
-            //         // Wrong variable type
-            //         sprintf(buf,
-            //                 HLO_READ_VAR_ERR_REPLY_TEMPLATE,
-            //                 "remote-port",
-            //                 ERR_VARIABLE_WRONG_TYPE,
-            //                 "Variable type should be integer.");
-            //     } else {                    
-            //         m_portRemote = vscp_readStringValue(hlo.m_value);
-            //         char ibuf[80];
-            //         sprintf(ibuf, "%d", m_portRemote);
-            //         sprintf(buf,
-            //                 HLO_READ_VAR_REPLY_TEMPLATE,
-            //                 "remote-port",
-            //                 "OK",
-            //                 VSCP_REMOTE_VARIABLE_CODE_INTEGER,
-            //                 vscp_convertToBase64(ibuf).c_str());
-            //     }
-            // } else if ("REMOTE-USER" == hlo.m_name) {
-            //     if (VSCP_REMOTE_VARIABLE_CODE_STRING != hlo.m_varType) {
-            //         // Wrong variable type
-            //         sprintf(buf,
-            //                 HLO_READ_VAR_ERR_REPLY_TEMPLATE,
-            //                 "remote-port",
-            //                 ERR_VARIABLE_WRONG_TYPE,
-            //                 "Variable type should be string.");
-            //     } else {
-            //         m_usernameRemote = hlo.m_value;
-            //         sprintf(buf,
-            //                 HLO_READ_VAR_REPLY_TEMPLATE,
-            //                 "remote-user",
-            //                 "OK",
-            //                 VSCP_REMOTE_VARIABLE_CODE_STRING,
-            //                 vscp_convertToBase64(m_usernameRemote).c_str());
-            //     }
-            // } else if ("REMOTE-PASSWORD" == hlo.m_name) {
-            //     if (VSCP_REMOTE_VARIABLE_CODE_STRING != hlo.m_varType) {
-            //         // Wrong variable type
-            //         sprintf(buf,
-            //                 HLO_READ_VAR_ERR_REPLY_TEMPLATE,
-            //                 "remote-password",
-            //                 ERR_VARIABLE_WRONG_TYPE,
-            //                 "Variable type should be string.");
-            //     } else {
-            //         m_passwordRemote = hlo.m_value;
-            //         sprintf(buf,
-            //                 HLO_READ_VAR_REPLY_TEMPLATE,
-            //                 "remote-password!",
-            //                 "OK",
-            //                 VSCP_REMOTE_VARIABLE_CODE_STRING,
-            //                 vscp_convertToBase64(m_passwordRemote).c_str());
-            //     }
-            // } else if ("TIMEOUT-RESPONSE¤" == hlo.m_name) {
-            //     if (VSCP_REMOTE_VARIABLE_CODE_INTEGER != hlo.m_varType) {
-            //         // Wrong variable type
-            //         sprintf(buf,
-            //                 HLO_READ_VAR_ERR_REPLY_TEMPLATE,
-            //                 "timeout-response",
-            //                 ERR_VARIABLE_WRONG_TYPE,
-            //                 "Variable type should be uint32.");
-            //     } else {                    
-            //         m_responseTimeout = vscp_readStringValue(hlo.m_value);
-            //         char ibuf[80];
-            //         sprintf(ibuf, "%lu", (long unsigned int)m_responseTimeout);
-            //         sprintf(buf,
-            //                 HLO_READ_VAR_REPLY_TEMPLATE,
-            //                 "timeout-response",
-            //                 "OK",
-            //                 VSCP_REMOTE_VARIABLE_CODE_UINT32,
-            //                 vscp_convertToBase64(ibuf).c_str());
-            //     }
-            // }
-            break;
+bool
+CTcpipSrv::readVariable(vscpEventEx& ex, const json& json_req)
+{
+    json j;
 
-        // Save configuration
-        case HLO_OP_SAVE:
-            doSaveConfig();
-            break;
+    j["op"] = "readvar";
+    j["result"] = ERR_VARIABLE_OK;
+    j["arg"]["name"] = j.value("name","");
 
-        // Load configuration
-        case HLO_OP_LOAD:
-            doLoadConfig();
-            break;
+    if ("enable-debug" == j.value("name","")) {
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_BOOLEAN;
+        j["arg"]["value"] = m_j_config.value("enable-debug", false);
+    } else if ("enable-write" == j.value("name","")) {
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_BOOLEAN;
+        j["arg"]["value"] = m_j_config.value("enable-write", false);
+    } else if ("interface" == j.value("name","")) {
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
+        j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("interface", ""));
+    } else if ("vscp-key-file" == j.value("name","")) {
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
+        j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("vscp-key-file", ""));
+    } else if ("max-out-queue" == j.value("name","")) {
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_INTEGER;
+        j["arg"]["value"] = m_j_config.value("max-out-queue", 0);
+    } else if ("max-in-queue" == j.value("name","")) {
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_INTEGER;
+        j["arg"]["value"] = m_j_config.value("max-in-queue", 0);
+    } else if ("encryption" == j.value("name","")) {
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
+        j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("encryption", ""));
+    } else if ("ssl-certificate" == j.value("name","")) {
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
+        j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-certificate", ""));
+    } else if ("ssl-certificate-chain" == j.value("name","")) {
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
+        j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-certificate-chain", ""));
+    } else if ("ssl-ca-path" == j.value("name","")) {
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
+        j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-ca-path", ""));
+    } else if ("ssl-ca-file" == j.value("name","")) {
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
+        j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-ca-file", ""));
+    } else if ("ssl-verify-depth" == j.value("name","")) {
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_INTEGER;
+        j["arg"]["value"] = m_j_config.value("ssl-verify-depth", 9);
+    } else if ("ssl-default-verify-paths" == j.value("name","")) {
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
+        j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-default-verify-paths", ""));
+    } else if ("ssl-cipher-list" == j.value("name","")) {
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
+        j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-cipher-list", ""));
+    } else if ("ssl-protocol-version" == j.value("name","")) {
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_INTEGER;
+        j["arg"]["value"] = m_j_config.value("ssl-protocol-version", 3);
+    } else if ("ssl-short-trust" == j.value("name","")) {
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_BOOLEAN;
+        j["arg"]["value"] = m_j_config.value("ssl-short-trust", false);
+    } else if ("user-count" == j.value("name","")) {
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_INTEGER;
+        j["arg"]["value"] = 9;
+    } else if ("users" == j.value("name","")) {
+        
+        if (!m_j_config["users"].is_array()) {
+            syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] 'users' must be of type array.");
+            j["result"] = ERR_VARIABLE_OK;
+            goto abort;
+        }
+        
+        int index = j.value("index",0);  // get index
+        if (index >= m_j_config["users"].size()) {
+            // Index to large
+            syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] index of array is to large [%u].", 
+                index >= m_j_config["users"].size());
+            j["result"] = ERR_VARIABLE_INDEX_OOB;
+            goto abort;
+        }
 
-        // Connect tyo remote host
-        case HLO_OP_LOCAL_CONNECT:
-            break;    
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_JSON;
+        j["arg"]["value"] = m_j_config["users"][index].dump();
 
-        // Disconnect from remote host
-        case HLO_OP_LOCAL_DISCONNECT:
-            break;
-  
-        default:
-            break;
-    };
+    } else {
+        j["result"] = ERR_VARIABLE_UNKNOWN;
+        syslog(LOG_ERR,"Variable [] is unknown.");
+    }
+
+ abort:
+
+    memset(ex.data, 0, sizeof(ex.data));
+    ex.sizeData = j.dump().length();
+    memcpy(ex.data, j.dump().c_str(), ex.sizeData);
+
+    return true;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// writeVariable
+//
+
+bool
+CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
+{
+    json j;
+
+    j["op"] = "writevar";
+    j["result"] = ERR_VARIABLE_OK;
+    j["arg"]["name"] = j.value("name","");
+
+    if ("enable-debug" == j.value("name","")) {
+        
+        // arg should be boolean
+        if (!j["arg"].is_boolean() ||
+             j["arg"].is_null()) {
+            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            goto abort;
+        }
+        
+        // set new value
+        m_j_config["enable-debug"] = j["arg"].get<bool>();
+        
+        // report back
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_BOOLEAN;
+        j["arg"]["value"] = m_j_config.value("enable-debug", false);
+
+    } else if ("enable-write" == j.value("name","")) {
+        
+        // arg should be boolean
+        if (!j["arg"].is_boolean() || 
+             j["arg"].is_null()) {
+            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            goto abort;         
+        }
+        // set new value
+        m_j_config["enable-write"] = j["arg"].get<bool>();
+
+        // report back
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_BOOLEAN;
+        j["arg"]["value"] = m_j_config.value("enable-write", false);
+
+    } else if ("interface" == j.value("name","")) {
+        
+        // arg should be string
+        if (!j["arg"].is_string() || 
+             j["arg"].is_null()) {
+            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            goto abort;         
+        }
+        // set new value
+        m_j_config["interface"] = j["arg"].get<std::string>();
+
+        // report back
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
+        j["arg"]["value"] = vscp_convertToBase64(m_j_config["interface"]);
+
+    } else if ("vscp-key-file" == j.value("name","")) {
+
+        // arg should be string
+        if (!j["arg"].is_string() || 
+             j["arg"].is_null()) {
+            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            goto abort;         
+        }
+        // set new value
+        m_j_config["vscp-key-file"] = j["arg"].get<std::string>();
+
+        // report back
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
+        j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("vscp-key-file", ""));
+
+    } else if ("max-out-queue" == j.value("name","")) {
+
+        // arg should be number
+        if (!j["arg"].is_number() || 
+             j["arg"].is_null()) {
+            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            goto abort;         
+        }
+        // set new value
+        m_j_config["max-out-queue"] = j["arg"].get<int>();
+
+        // report back
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_INTEGER;
+        j["arg"]["value"] = m_j_config.value("max-out-queue", 0);
+
+    } else if ("max-in-queue" == j.value("name","")) {
+
+        // arg should be number
+        if (!j["arg"].is_number() || 
+             j["arg"].is_null()) {
+            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            goto abort;         
+        }
+        // set new value
+        m_j_config["max-in-queue"] = j["arg"].get<int>();
+
+        // report back
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_INTEGER;
+        j["arg"]["value"] = m_j_config.value("max-in-queue", 0);
+
+    } else if ("encryption" == j.value("name","")) {
+
+        // arg should be string
+        if (!j["arg"].is_string() || 
+             j["arg"].is_null()) {
+            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            goto abort;         
+        }
+        // set new value
+        m_j_config["encryption"] = j["arg"].get<std::string>();
+
+        // report back
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
+        j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("encryption", ""));
+
+    } else if ("ssl-certificate" == j.value("name","")) {
+
+        // arg should be string
+        if (!j["arg"].is_string() || 
+             j["arg"].is_null()) {
+            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            goto abort;         
+        }
+        // set new value
+        m_j_config["ssl-certificate"] = j["arg"].get<std::string>();
+
+        // report back
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
+        j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-certificate", ""));
+
+    } else if ("ssl-certificate-chain" == j.value("name","")) {
+
+        // arg should be string
+        if (!j["arg"].is_string() || 
+             j["arg"].is_null()) {
+            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            goto abort;         
+        }
+        // set new value
+        m_j_config["ssl-certificate-chain"] = j["arg"].get<std::string>();
+
+        // report back
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
+        j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-certificate-chain", ""));
+
+    } else if ("ssl-ca-path" == j.value("name","")) {
+
+        // arg should be string
+        if (!j["arg"].is_string() || 
+             j["arg"].is_null()) {
+            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            goto abort;         
+        }
+        // set new value
+        m_j_config["ssl-ca-path"] = j["arg"].get<std::string>();
+
+        // report back
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
+        j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-ca-path", ""));
+
+    } else if ("ssl-ca-file" == j.value("name","")) {
+
+        // arg should be string
+        if (!j["arg"].is_string() || 
+             j["arg"].is_null()) {
+            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            goto abort;         
+        }
+        // set new value
+        m_j_config["ssl-ca-file"] = j["arg"].get<std::string>();
+
+        // report back
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
+        j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-ca-file", ""));
+
+    } else if ("ssl-verify-depth" == j.value("name","")) {
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_INTEGER;
+        j["arg"]["value"] = m_j_config.value("ssl-verify-depth", 9);
+    } else if ("ssl-default-verify-paths" == j.value("name","")) {
+        
+        // arg should be string
+        if (!j["arg"].is_string() || 
+             j["arg"].is_null()) {
+            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            goto abort;         
+        }
+        // set new value
+        m_j_config["ssl-default-verify-paths"] = j["arg"].get<std::string>();
+
+        // report back
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
+        j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-default-verify-paths", ""));
+
+    } else if ("ssl-cipher-list" == j.value("name","")) {
+
+        // arg should be string
+        if (!j["arg"].is_string() || 
+             j["arg"].is_null()) {
+            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            goto abort;         
+        }
+        // set new value
+        m_j_config["ssl-cipher-list"] = j["arg"].get<std::string>();
+
+        // report back
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
+        j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-cipher-list", ""));
+
+    } else if ("ssl-protocol-version" == j.value("name","")) {
+        
+        // arg should be number
+        if (!j["arg"].is_number() || 
+             j["arg"].is_null()) {
+            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            goto abort;         
+        }
+        // set new value
+        m_j_config["ssl-protocol-version"] = j["arg"].get<bool>();
+
+        // report back
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_INTEGER;
+        j["arg"]["value"] = m_j_config.value("ssl-protocol-version", 3);
+
+    } else if ("ssl-short-trust" == j.value("name","")) {
+
+        // arg should be boolean
+        if (!j["arg"].is_boolean() || 
+             j["arg"].is_null()) {
+            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            goto abort;         
+        }
+        // set new value
+        m_j_config["ssl-short-trust"] = j["arg"].get<bool>();
+
+        // report back
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_BOOLEAN;
+        j["arg"]["value"] = m_j_config.value("ssl-short-trust", false);
+
+    } else if ("users" == j.value("name","")) {
+        
+        // users must be array
+        if (!m_j_config["users"].is_array()) {
+            syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] 'users' must be of type array.");
+            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            goto abort;
+        }
+
+        // Must be object
+        if (!m_j_config["args"].is_object()) {
+            syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] The user info must be an object.");
+            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            goto abort;
+        }
+
+        int index = j.value("index",0);  // get index
+        if (index >= m_j_config["users"].size()) {
+            // Index to large
+            syslog(LOG_WARNING, 
+                        "[vscpl2drv-tcpipsrv] index of array is to large [%u].",
+                        index >= m_j_config["users"].size());
+            j["result"] = ERR_VARIABLE_INDEX_OOB;
+            goto abort;
+        }
+
+        m_j_config["users"][index] = j["args"];
+
+        j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_JSON;
+        j["arg"]["value"] = m_j_config["users"][index].dump();
+
+    } else {
+        j["result"] = ERR_VARIABLE_UNKNOWN;
+        syslog(LOG_ERR,"Variable [] is unknown.");
+    }
+
+ abort:
+
+    memset(ex.data, 0, sizeof(ex.data));
+    ex.sizeData = j.dump().length();
+    memcpy(ex.data, j.dump().c_str(), ex.sizeData);
+
+    return true;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// deleteVariable
+//
+
+bool
+CTcpipSrv::deleteVariable(vscpEventEx& ex, const json& json_reg)
+{
+    json j;
+
+    j["op"] = "deletevar";
+    j["result"] = ERR_VARIABLE_OK;
+    j["arg"]["name"] = j.value("name","");
+
+    if ("users" == j.value("name","")) {
+        
+        // users must be array
+        if (!m_j_config["users"].is_array()) {
+            syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] 'users' must be of type array.");
+            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            goto abort;
+        }
+
+        // Must be object
+        if (!m_j_config["args"].is_object()) {
+            syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] The user info must be an object.");
+            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            goto abort;
+        }
+
+        int index = j.value("index",0);  // get index
+        if (index >= m_j_config["users"].size()) {
+            // Index to large
+            syslog(LOG_WARNING, 
+                        "[vscpl2drv-tcpipsrv] index of array is to large [%u].",
+                        index >= m_j_config["users"].size());
+            j["result"] = ERR_VARIABLE_INDEX_OOB;
+            goto abort;
+        }
+
+        m_j_config["users"].erase(index);
+
+    } else {
+        j["result"] = ERR_VARIABLE_UNKNOWN;
+        syslog(LOG_WARNING, "[vscpl2drv-tcpipsrv] Variable [%s] is unknown.", j.value("name", "").c_str());
+    }
+
+abort:
+
+    memset(ex.data, 0, sizeof(ex.data));
+    ex.sizeData = j.dump().length();
+    memcpy(ex.data, j.dump().c_str(), ex.sizeData);
+
+    return true;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// stop
+//
+
+bool
+CTcpipSrv::stop(void)
+{
+    return true;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// start
+//
+
+bool
+CTcpipSrv::start(void)
+{
+    return true;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// restart
+//
+
+bool
+CTcpipSrv::restart(void)
+{
+    if (!stop()) {
+        syslog(LOG_WARNING, "[vscpl2drv-tcpipsrv] Failed to stop VSCP tcp/ip server.");
+    }
+
+    if (!start()) {
+        syslog(LOG_WARNING, "[vscpl2drv-tcpipsrv] Failed to start VSCP tcp/ip server.");
+    }
 
     return true;
 }
@@ -458,7 +891,7 @@ CTcpipSrv::eventExToReceiveQueue(vscpEventEx& ex)
         vscp_deleteEvent(pev);
         return false;
     }
-    
+
     if (NULL != pev) {
         if (vscp_doLevel2Filter(pev, &m_rxfilter)) {
             pthread_mutex_lock(&m_mutexReceiveQueue);
@@ -533,7 +966,7 @@ CTcpipSrv::sendEventToClient(CClientItem* pClientItem, const vscpEvent* pEvent)
 
     // If the client queue is full for this client then the
     // client will not receive the message
-    if (pClientItem->m_clientInputQueue.size() > m_j_config.value("maxoutque", MAX_ITEMS_IN_QUEUE)) {
+    if (pClientItem->m_clientInputQueue.size() > m_j_config.value("max-out-queue", MAX_ITEMS_IN_QUEUE)) {
         if (m_j_config["enable-debug"].get<bool>()) {
             syslog(LOG_DEBUG, "sendEventToClient - overrun");
         }

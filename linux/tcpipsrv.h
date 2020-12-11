@@ -113,6 +113,18 @@ class CTcpipSrv
     */
     bool doSaveConfig(void);
 
+    bool readVariable(vscpEventEx& ex, const json& json_req);
+
+    bool writeVariable(vscpEventEx& ex, const json& json_req);
+
+    bool deleteVariable(vscpEventEx& ex, const json& json_req);
+
+    bool stop(void);
+
+    bool start(void);
+
+    bool restart(void);  
+
     /*!
         Put event on receive queue and signal
         that a new event is available
