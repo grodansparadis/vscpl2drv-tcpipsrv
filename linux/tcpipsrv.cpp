@@ -73,7 +73,7 @@ using json = nlohmann::json;
 using namespace kainjow::mustache;
 
 // Buffer for XML parser
-#define XML_BUFF_SIZE 50000
+//#define XML_BUFF_SIZE 50000
 
 // Forward declaration
 void*
