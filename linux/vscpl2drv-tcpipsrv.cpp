@@ -260,18 +260,15 @@ VSCPRead(long handle, vscpEvent* pEvent, unsigned long timeout)
     }
 
     CTcpipSrv* pdrvObj = getDriverObject(handle);
-    if (NULL == pdrvObj)
+    if (NULL == pdrvObj) {
         return CANAL_ERROR_MEMORY;
+    }
 
-    struct timespec ts;
-    ts.tv_sec = 0;
-    ts.tv_nsec = timeout * 1000;
-    if (-1 == (rv = sem_timedwait(&pdrvObj->m_semReceiveQueue, &ts))) {
+    if (-1 == (rv = vscp_sem_wait(&pdrvObj->m_semReceiveQueue, timeout))) {
         if (ETIMEDOUT == errno) {
             return CANAL_ERROR_TIMEOUT;
         } else if (EINTR == errno) {
-            syslog(LOG_ERR,
-                   "[vscpl2drv-tcpipsrv] Interrupted by a signal handler");
+            syslog(LOG_ERR, "[vscpl2drv-tcpipsrv] Interrupted by a signal handler");
             return CANAL_ERROR_INTERNAL;
         } else if (EINVAL == errno) {
             syslog(LOG_ERR, "[vscpl2drv-tcpipsrv] Invalid semaphore (timout)");

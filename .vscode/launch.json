@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "/home/akhe/development/VSCP/vscp/src/vscp/daemon/linux/vscpd",
-            "args": ["-s","-c${workspaceFolder}/debug/linux/vscpd.xml"],
+            "args": ["-s","-c/home/akhe/development/VSCP/vscpl2drv-tcpipsrv/debug/linux/vscpd.json"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/../vscp",
             "environment": [],
