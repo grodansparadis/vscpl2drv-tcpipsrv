@@ -118,7 +118,7 @@ The configuration file have the following format
     "ssl_default_verify_paths" : true,
     "ssl_cipher_list" : "DES-CBC3-SHA:AES128-SHA:AES128-GCM-SHA256",
     "ssl_protocol_version" : 3,
-    "ssl_short_trust" : false,        
+    "ssl_short_trust" : false,
 }
 ```
 

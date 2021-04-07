@@ -52,7 +52,9 @@
 #define DWORD unsigned long
 #endif
 
+#include "version.h"
 #include "tcpipsrv.h"
+
 #include <vscp.h>
 #include <vscpdatetime.h>
 #include <vscphelper.h>

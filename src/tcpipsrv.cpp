@@ -409,7 +409,7 @@ CTcpipSrv::readVariable(vscpEventEx& ex, const json& json_req)
     json j;
 
     j["op"] = "readvar";
-    j["result"] = ERR_VARIABLE_OK;
+    j["result"] = VSCP_ERROR_SUCCESS;
     j["arg"]["name"] = j.value("name","");
 
     if ("enable-debug" == j.value("name","")) {
@@ -467,7 +467,7 @@ CTcpipSrv::readVariable(vscpEventEx& ex, const json& json_req)
         
         if (!m_j_config["users"].is_array()) {
             syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] 'users' must be of type array.");
-            j["result"] = ERR_VARIABLE_OK;
+            j["result"] = VSCP_ERROR_SUCCESS;
             goto abort;
         }
         
@@ -476,7 +476,7 @@ CTcpipSrv::readVariable(vscpEventEx& ex, const json& json_req)
             // Index to large
             syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] index of array is to large [%u].", 
                 index >= m_j_config["users"].size());
-            j["result"] = ERR_VARIABLE_INDEX_OOB;
+            j["result"] = VSCP_ERROR_INDEX_OOB;
             goto abort;
         }
 
@@ -484,7 +484,7 @@ CTcpipSrv::readVariable(vscpEventEx& ex, const json& json_req)
         j["arg"]["value"] = m_j_config["users"][index].dump();
 
     } else {
-        j["result"] = ERR_VARIABLE_UNKNOWN;
+        j["result"] = VSCP_ERROR_MISSING;
         syslog(LOG_ERR,"Variable [] is unknown.");
     }
 
@@ -507,7 +507,7 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
     json j;
 
     j["op"] = "writevar";
-    j["result"] = ERR_VARIABLE_OK;
+    j["result"] = VSCP_ERROR_SUCCESS;
     j["arg"]["name"] = j.value("name","");
 
     if ("enable-debug" == j.value("name","")) {
@@ -515,7 +515,7 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         // arg should be boolean
         if (!j["arg"].is_boolean() ||
              j["arg"].is_null()) {
-            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;
         }
         
@@ -531,7 +531,7 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         // arg should be boolean
         if (!j["arg"].is_boolean() || 
              j["arg"].is_null()) {
-            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;         
         }
         // set new value
@@ -546,7 +546,7 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         // arg should be string
         if (!j["arg"].is_string() || 
              j["arg"].is_null()) {
-            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;         
         }
         // set new value
@@ -561,7 +561,7 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         // arg should be string
         if (!j["arg"].is_string() || 
              j["arg"].is_null()) {
-            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;         
         }
         // set new value
@@ -576,7 +576,7 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         // arg should be number
         if (!j["arg"].is_number() || 
              j["arg"].is_null()) {
-            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;         
         }
         // set new value
@@ -591,7 +591,7 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         // arg should be number
         if (!j["arg"].is_number() || 
              j["arg"].is_null()) {
-            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;         
         }
         // set new value
@@ -606,7 +606,7 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         // arg should be string
         if (!j["arg"].is_string() || 
              j["arg"].is_null()) {
-            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;         
         }
         // set new value
@@ -621,7 +621,7 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         // arg should be string
         if (!j["arg"].is_string() || 
              j["arg"].is_null()) {
-            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;         
         }
         // set new value
@@ -636,7 +636,7 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         // arg should be string
         if (!j["arg"].is_string() || 
              j["arg"].is_null()) {
-            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;         
         }
         // set new value
@@ -651,7 +651,7 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         // arg should be string
         if (!j["arg"].is_string() || 
              j["arg"].is_null()) {
-            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;         
         }
         // set new value
@@ -666,7 +666,7 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         // arg should be string
         if (!j["arg"].is_string() || 
              j["arg"].is_null()) {
-            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;         
         }
         // set new value
@@ -684,7 +684,7 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         // arg should be string
         if (!j["arg"].is_string() || 
              j["arg"].is_null()) {
-            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;         
         }
         // set new value
@@ -699,7 +699,7 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         // arg should be string
         if (!j["arg"].is_string() || 
              j["arg"].is_null()) {
-            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;         
         }
         // set new value
@@ -714,7 +714,7 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         // arg should be number
         if (!j["arg"].is_number() || 
              j["arg"].is_null()) {
-            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;         
         }
         // set new value
@@ -729,7 +729,7 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         // arg should be boolean
         if (!j["arg"].is_boolean() || 
              j["arg"].is_null()) {
-            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;         
         }
         // set new value
@@ -744,14 +744,14 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         // users must be array
         if (!m_j_config["users"].is_array()) {
             syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] 'users' must be of type array.");
-            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;
         }
 
         // Must be object
         if (!m_j_config["args"].is_object()) {
             syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] The user info must be an object.");
-            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;
         }
 
@@ -761,7 +761,7 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
             syslog(LOG_WARNING, 
                         "[vscpl2drv-tcpipsrv] index of array is to large [%u].",
                         index >= m_j_config["users"].size());
-            j["result"] = ERR_VARIABLE_INDEX_OOB;
+            j["result"] = VSCP_ERROR_INDEX_OOB;
             goto abort;
         }
 
@@ -771,7 +771,7 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         j["arg"]["value"] = m_j_config["users"][index].dump();
 
     } else {
-        j["result"] = ERR_VARIABLE_UNKNOWN;
+        j["result"] = VSCP_ERROR_MISSING;
         syslog(LOG_ERR,"Variable [] is unknown.");
     }
 
@@ -794,7 +794,7 @@ CTcpipSrv::deleteVariable(vscpEventEx& ex, const json& json_reg)
     json j;
 
     j["op"] = "deletevar";
-    j["result"] = ERR_VARIABLE_OK;
+    j["result"] = VSCP_ERROR_SUCCESS;
     j["arg"]["name"] = j.value("name","");
 
     if ("users" == j.value("name","")) {
@@ -802,14 +802,14 @@ CTcpipSrv::deleteVariable(vscpEventEx& ex, const json& json_reg)
         // users must be array
         if (!m_j_config["users"].is_array()) {
             syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] 'users' must be of type array.");
-            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;
         }
 
         // Must be object
         if (!m_j_config["args"].is_object()) {
             syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] The user info must be an object.");
-            j["result"] = ERR_VARIABLE_WRONG_TYPE;
+            j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;
         }
 
@@ -819,14 +819,14 @@ CTcpipSrv::deleteVariable(vscpEventEx& ex, const json& json_reg)
             syslog(LOG_WARNING, 
                         "[vscpl2drv-tcpipsrv] index of array is to large [%u].",
                         index >= m_j_config["users"].size());
-            j["result"] = ERR_VARIABLE_INDEX_OOB;
+            j["result"] = VSCP_ERROR_INDEX_OOB;
             goto abort;
         }
 
         m_j_config["users"].erase(index);
 
     } else {
-        j["result"] = ERR_VARIABLE_UNKNOWN;
+        j["result"] = VSCP_ERROR_MISSING;
         syslog(LOG_WARNING, "[vscpl2drv-tcpipsrv] Variable [%s] is unknown.", j.value("name", "").c_str());
     }
 

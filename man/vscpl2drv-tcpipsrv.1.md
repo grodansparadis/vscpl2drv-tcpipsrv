@@ -1,10 +1,10 @@
-% vscpl2drv-tcpipsrv(1) VSCP Level II Logger Driver
+% vscpl2drv-tcpipsrv(1) VSCP Level II tcp/ip server Driver
 % Åke Hedmann, Grodans Paradis AB
-% January 02, 2020
+% April 07, 2021
 
 # NAME
 
-vscpl2drv-tcpipsrv - VSCP Level I Socketcan Driver
+vscpl2drv-tcpipsrv - VSCP Level II tcp/ip server driver
 
 # SYNOPSIS
 
