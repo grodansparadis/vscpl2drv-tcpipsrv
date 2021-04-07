@@ -6,10 +6,7 @@
     Driver Linux: vscpl2drv-tcpipsrv.so
     Driver Windows: vscpl2drv-tcpipsrv.dll
 
-The tcp/ip driver can send/receive events to/from a remote VSCP tcp/ip interface with automatic reconnection and security. The remote node is notmally a high level VSCP hardware device ir a VSCP daemon.
-
-The driver will try to hold a connection open even if the remote node disconnects. This makes it possible to replace a node or take it down for maintenance and still have the link online again as soon as the node is powered up. 
-
+The tcp/ip driver act as a tcp/ip server for the [VSCP tcp/ip link protocol](https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_over_tcp_ip). Users or IoT/m2m devices with different privileges and rights can connect to the exported interface and send/receive VSCP events.
 
 ## Install the driver on Linux
 You can install the driver using the debian package with
@@ -74,9 +71,9 @@ The VSCP daemon configuration is (normally) located at */etc/vscp/vscpd.conf*. T
 section on the following format
 
 ```xml
-<!-- Level II TCP/IP link -->
+<!-- Level II TCP/IP Server -->
 <driver enable="true"
-    name="link"
+    name="vscp-tcpip-srv"
     path-driver="/usr/lib/vscpl2drv-tcpipsrv.so"
     path-config="/var/lib/vscpl2drv-tcpipsrv/drv.conf"
     guid="FF:FF:FF:FF:FF:FF:FF:FC:88:99:AA:BB:CC:DD:EE:FF"
@@ -101,18 +98,28 @@ On start up the configuration is read from the path set in the driver configurat
 
 The configuration file have the following format
 
-```xml
-<?xml version = "1.0" encoding = "UTF-8" ?>
-    <!-- Version 0.0.1    2019-11-05   -->
-    <config debug="true|false"
-            write="true|false" 
-            remote-host="hostname or ip-address" 
-            remote_port="9598 or other port" 
-            remote_user="user on remote host"
-            remote_password="password on remote host" 
-            response-timeout="0"
-            filter="incoming-filter"
-            mask="incoming-mask" />
+```json
+{
+    "debug" : false,
+    "write" : false,
+    "interface": "[s]tcp://ip-address:port",
+    "auth-domain": "mydomain.com",
+    "path-users" : "/etc/vscp/tcpip_srv_users.json",
+    "response-timeout" : 0,
+    "encryption" : "none|aes128|aes192|aes256",
+    "filter" : "incoming-filter",
+    "mask" : "incoming-mask", 
+    "ssl_certificate" : "/srv/vscp/certs/tcpip_server.pem",
+    "ssl_certificate_chain" : "",
+    "ssl_verify_peer" : false,
+    "ssl_ca_path" : "",
+    "ssl_ca_file" : "",
+    "ssl_verify_depth" : 9,
+    "ssl_default_verify_paths" : true,
+    "ssl_cipher_list" : "DES-CBC3-SHA:AES128-SHA:AES128-GCM-SHA256",
+    "ssl_protocol_version" : 3,
+    "ssl_short_trust" : false,        
+}
 ```
 
 ##### debug
@@ -123,23 +130,32 @@ If write is true dynamic changes to the configuration file will be possible to s
 
 If you never intend to change driver parameters during runtime consider moving the configuration file to the VSCP daemon configuration folder.
 
-##### guid
-All level II drivers must have a unique GUID. There is many ways to obtain this GUID, Read more [here](https://grodansparadis.gitbooks.io/the-vscp-specification/vscp_globally_unique_identifiers.html).
+##### interface
+Set the interface to listen on. Default is: *tcp://localhost:9598*. The interface is either secure (TLS) or insecure. It is not possible to define interfaces that accept connections of both types.
 
-##### remote-host
-Remote VSCP tcp/ip link interface host to connect to. IP address or name.
+if "tcp:// part is omitted the content is treated as it was present.
 
-##### remote-port
-Port to connect to on VSCP tcp/ip link interface on remote host. Default is 9598.
+If port is omitted, default 9598 is used.
 
-##### remote-user
-Username to login as on VSCP tcp/ip link interface on remote host.
+For TLS/SSL use prefix "stcp://"
 
-##### remote-password
-Password to use on VSCP tcp/ip link interface remote host.
+##### auth-domain
+The authentication domain. In reality this is an arbitrary string that is used when calulating md5 checksums. In this case the checksum is calulated over "user:auth-domain-password"
+
+##### path-users
+The user database is separated from the configuration file for security reasons and should be stored in a folder that is only readable by the user of the host, usually the VSCP daemon.
+
+The format for the user file is specified below.
 
 ##### response-timeout
 Response timeout in milliseconds. Connection will be restarted if this expires.
+
+##### encryption
+Response and commands from/to the tcp/ip link server can be encrypted using AES-128, AES-192 or AES-256. Set here as
+
+"none|aes128|aes192|aes256"
+
+**Default**: is no encryption.
 
 ##### filter
 Filter and mask is a way to select which events is received by the driver. A filter have the following format
@@ -148,7 +164,7 @@ Filter and mask is a way to select which events is received by the driver. A fil
 
 All values can be give in decimal or hexadecimal (preceded number with '0x'). GUID is always given i hexadecimal (without preceded '0x').
 
-Default setting is
+**Default**: setting is
 
 > 0,0,0,00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00
 
@@ -172,6 +188,122 @@ Default setting is
 Read the vscpd manual for more information about how filter/masks work.
 
 The default filter/mask pair means that all events are received by the driver.
+
+##### ssl_certificate
+Path to SSL certificate file. This option is only required when at least one of the listening_ports is SSL The file must be in PEM format, and it must have both private key and certificate, see for example ssl_cert.pem. If this option is set, then the webserver serves SSL connections on the port set up to listen on.
+
+**Default**: /srv/vscp/certs/server.pem
+
+##### ssl_certificate_chain
+T.B.D.
+
+##### ssl_verify_peer
+Enable client's certificate verification by the server.
+
+**Default**: false
+
+##### ssl_ca_path
+Name of a directory containing trusted CA certificates for peers. Each file in the directory must contain only a single CA certificate. The files must be named by the subject name’s hash and an extension of “.0”. If there is more than one certificate with the same subject name they should have extensions ".0", ".1", ".2" and so on respectively.
+
+##### ssl_ca_file"
+Path to a .pem file containing trusted certificates for peers. The file may contain more than one certificate.
+
+##### ssl_verify_depth
+Sets maximum depth of certificate chain. If client's certificate chain is longer than the depth set here connection is refused.
+
+**Default**: 9
+
+##### ssl_default_verify_paths
+Loads default trusted certificates locations set at openssl compile time.
+
+**Default**: true
+
+##### ssl_cipher_list
+List of ciphers to present to the client. Entries should be separated by colons, commas or spaces.
+
+| Selection	| Description |
+| ========= | =========== |
+| ALL |	All available ciphers |
+| ALL:!eNULL | All ciphers excluding NULL ciphers |
+| AES128:!MD5 | AES 128 with digests other than MD5 |
+
+See [this entry in OpenSSL documentation](https://www.openssl.org/docs/manmaster/apps/ciphers.html) for full list of options and additional examples.
+
+**Default**: "DES-CBC3-SHA:AES128-SHA:AES128-GCM-SHA256",
+
+##### ssl_protocol_version
+Sets the minimal accepted version of SSL/TLS protocol according to the table:
+
+| Selected protocols | setting |
+| ================== | ======= |
+| SSL2+SSL3+TLS1.0+TLS1.1+TLS1.2 | 0 |
+| SSL3+TLS1.0+TLS1.1+TLS1.2 | 1 |
+| TLS1.0+TLS1.1+TLS1.2 | 2 |
+| TLS1.1+TLS1.2	| 3 |
+| TLS1.2 | 4 |
+
+**Default**: 4.
+
+##### ssl_short_trust
+Enables the use of short lived certificates. This will allow for the certificates and keys specified in ssl_certificate, ssl_ca_file and ssl_ca_path to be exchanged and reloaded while the server is running.
+
+In an automated environment it is advised to first write the new pem file to a different filename and then to rename it to the configured pem file name to increase performance while swapping the certificate.
+
+Disk IO performance can be improved when keeping the certificates and keys stored on a tmpfs (linux) on a system with very high throughput.
+
+**Default**: false
+
+ #### Format for user database
+
+ ```json
+ {
+	"users" : [
+		{
+			"user" : "admin",
+			"credentials"  : "md5 checksum",
+			"rights" : rights,
+			"name" : "Full name",
+			"events" : [
+				{
+					"event" : vscp-class,
+					"type": vscp.type,
+					"dir" : "TX|RX|BOTH"
+					"priority" : 
+				}
+			]
+		}
+	]
+}
+ ```
+
+ Any number of users can be specified
+
+ ##### user
+ The login user name
+
+ ##### credentials
+ The md5 checksum calculated over "user:auth-domain:password"
+
+ ##### rights
+ Rights for this user as a 32-bit rights number.
+
+ ##### name
+ Full name for user.
+
+ ##### events
+ This is a list with events the user is allowed to send and/or receive. If empty all events can be sent and received by the users.
+
+ ###### class
+ VSCP class. Can be set to -1 to allow all classes.
+
+ ###### type
+ VSCP type. Can be set to -1 to allow all types. 
+
+ ###### dir
+ The direction the user is allowed to handle. Set to "rx" to allow only receive. Set to "tx" to allow only transmit. Set to "both" or empty to allow sending and receiving.
+
+###### max-priority
+Max priority (0-7) this user can use for send events. Trying to send an event with a higher priority will replace the event value with the value set here. Note that 0 is the hightst priority.
 
 ### Windows
 See information from Linux. The only difference is the disk location from where configuration data is fetched.

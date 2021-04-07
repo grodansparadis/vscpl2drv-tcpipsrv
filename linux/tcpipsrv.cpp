@@ -58,14 +58,14 @@
 #include <vscphelper.h>
 #include <vscpremotetcpif.h>
 
+#include <json.hpp>  // Needs C++11  -std=c++11
+#include <mustache.hpp>
+
 #include <iostream>
 #include <fstream>      
 #include <list>
 #include <map>
 #include <string>
-
-#include <json.hpp>  // Needs C++11  -std=c++11
-#include <mustache.hpp>
 
 // https://github.com/nlohmann/json
 using json = nlohmann::json;
