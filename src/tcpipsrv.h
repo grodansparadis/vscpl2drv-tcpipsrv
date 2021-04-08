@@ -26,15 +26,22 @@
 
 #define _POSIX
 
+#ifdef WIN32
+#include "StdAfx.h"
+#endif
+
 #include <list>
 #include <string>
 
 #include <pthread.h>
 #include <stdio.h>
 #include <string.h>
+#if WIN32
+#else
 #include <syslog.h>
-#include <time.h>
 #include <unistd.h>
+#endif
+#include <time.h>
 
 #include <canal.h>
 #include <canal_macro.h>

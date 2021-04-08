@@ -25,6 +25,10 @@
 //#pragma implementation
 #endif
 
+#ifdef WIN32
+#include "StdAfx.h"
+#endif
+
 #include <map>
 #include <string>
 
@@ -36,11 +40,14 @@
 #include "version.h"
 
 #include <vscp.h>
+#include <vscphelper.h>
 #include <hlo.h>
 
 #include "vscpl2drv-tcpipsrv.h"
 #include "tcpipsrv.h"
 
+#ifdef WIN32
+#else
 void
 _init() __attribute__((constructor));
 void
@@ -50,6 +57,7 @@ void
 _init() __attribute__((constructor));
 void
 _fini() __attribute__((destructor));
+#endif
 
 // This map holds driver handles/objects
 static std::map<long, CTcpipSrv*> g_ifMap;
@@ -266,20 +274,33 @@ VSCPRead(long handle, vscpEvent* pEvent, unsigned long timeout)
         return CANAL_ERROR_MEMORY;
     }
 
+#ifndef WIN32
     if (-1 == (rv = vscp_sem_wait(&pdrvObj->m_semReceiveQueue, timeout))) {
+#else
+    // !!!!!!!!!!!!!!!!!    TODO WIN32    !!!!!!!!!!!!!!!!!!!!!!!!!
+    if (1) {
+#endif        
         if (ETIMEDOUT == errno) {
             return CANAL_ERROR_TIMEOUT;
         } else if (EINTR == errno) {
+#ifndef WIN32            
             syslog(LOG_ERR, "[vscpl2drv-tcpipsrv] Interrupted by a signal handler");
+#endif            
             return CANAL_ERROR_INTERNAL;
         } else if (EINVAL == errno) {
+#ifndef WIN32            
             syslog(LOG_ERR, "[vscpl2drv-tcpipsrv] Invalid semaphore (timout)");
+#endif            
             return CANAL_ERROR_INTERNAL;
         } else if (EAGAIN == errno) {
+#ifndef WIN32            
             syslog(LOG_ERR, "[vscpl2drv-tcpipsrv] Blocking error");
+#endif            
             return CANAL_ERROR_INTERNAL;
         } else {
+#ifndef WIN32            
             syslog(LOG_ERR, "[vscpl2drv-tcpipsrv] Unknown error");
+#endif            
             return CANAL_ERROR_INTERNAL;
         }
     }

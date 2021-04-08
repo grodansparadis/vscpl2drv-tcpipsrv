@@ -26,14 +26,21 @@
 #if !defined(VSCPL2_TCPIPLINK_H__A388C093_AD35_4672_8BF7_DBC702C6B0C8__INCLUDED_)
 #define VSCPL2_TCPIPLINK_H__A388C093_AD35_4672_8BF7_DBC702C6B0C8__INCLUDED_
 
+#ifdef WIN32
+#include "StdAfx.h"
+#endif
+
 #define _POSIX
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef WIN32
+#else
 #include <unistd.h>
-#include <pthread.h>
 #include <syslog.h>
+#endif
+#include <pthread.h>
 #include <canal.h>
 #include <vscpremotetcpif.h>
 #include <canal_macro.h>

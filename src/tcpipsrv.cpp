@@ -21,30 +21,42 @@
 // Boston, MA 02111-1307, USA.
 //
 
-#include "tcpipsrv.h"
+#ifdef WIN32
+#include "StdAfx.h"
+#endif
 
+#include "tcpipsrv.h"
 #include <limits.h>
-#include <net/if.h>
+
 #include <pthread.h>
 #include <semaphore.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef WIN32
+#else
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#endif
+
 #include <sys/types.h>
+
+#ifdef WIN32
+#else
 #include <syslog.h>
 #include <unistd.h>
-
-#include <ctype.h>
+#include <net/if.h>
 #include <libgen.h>
 #include <net/if.h>
 #include <signal.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/time.h>
-#include <sys/types.h>
 #include <sys/uio.h>
+#endif
+
+#include <ctype.h>
+#include <sys/types.h>
 #include <time.h>
 
 #include <expat.h>
@@ -117,7 +129,9 @@ CTcpipSrv::~CTcpipSrv()
     pthread_mutex_destroy(&m_mutex_UserList);
 
     // Close syslog channel
+#ifndef WIN32    
     closelog();
+#endif    
 }
 
 
@@ -137,15 +151,19 @@ CTcpipSrv::open(std::string& path, const cguid& guid)
 
     // Read configuration file
     if (!doLoadConfig()) {
+#ifndef WIN32        
         syslog(LOG_ERR,
                "[vscpl2drv-tcpipsrv] Failed to load configuration file [%s]",
                path.c_str());
+#endif               
         return false;
     }
 
     if (!startTcpipSrvThread()) {
+#ifndef WIN32        
         syslog(LOG_ERR,
                "[vscpl2drv-tcpipsrv] Failed to start server.");
+#endif               
         return false;
     }
 
@@ -164,7 +182,11 @@ CTcpipSrv::close(void)
         return;
 
     m_bQuit = true;     // terminate the thread
+#ifndef WIN32    
     sleep(1);           // Give the thread some time to terminate
+#else
+    Sleep(1000);    
+#endif    
 }
 
 
@@ -180,19 +202,25 @@ CTcpipSrv::doLoadConfig(void)
         in >> m_j_config;
     }
     catch (json::parse_error) {
+#ifndef WIN32        
         syslog(LOG_ERR, "[vscpl2drv-tcpipsrv] Failed to parse JSON configuration.");
+#endif        
         return false;
     }
 
     if (!readEncryptionKey(m_j_config.value("vscp-key-file", ""))) {
+#ifndef WIN32        
         syslog(LOG_ERR, "[vscpl2drv-tcpipsrv] WARNING!!! Default key will be used.");
+#endif        
         // Not secure of course but something...
         m_vscpkey = "Carpe diem quam minimum credula postero";
     }
 
     // Add users
     if (!m_j_config["users"].is_array()) {
+#ifndef WIN32        
         syslog(LOG_ERR, "[vscpl2drv-tcpipsrv] Failed to parse JSON configuration.");
+#endif        
         return false;
     }
 
@@ -213,7 +241,9 @@ CTcpipSrv::doLoadConfig(void)
                                     (*it).value("allow-from", ""),
                                     (*it).value("allow-events", ""),
                                     (*it).value("flags", 0))) {
+#ifndef WIN32                                        
             syslog(LOG_ERR, "[vscpl2drv-tcpipsrv] Failed to add client %s.",(*it).dump().c_str());
+#endif            
         }
     }
 
@@ -256,7 +286,7 @@ CTcpipSrv::doLoadConfig(void)
     }
     ev.pdata[16] = 0x20;  // JSON, no encryption
     memcpy(ev.pdata+17, j.dump().c_str(), j.dump().length());
-    ev.sizeData = 16 + 1 + j.dump().length();
+    ev.sizeData = 16 + 1 + (uint16_t)j.dump().length();
 
     handleHLO(&ev);
 
@@ -287,8 +317,10 @@ CTcpipSrv::handleHLO(vscpEvent* pEvent)
 
     // Check pointers
     if (NULL == pEvent || (NULL == pEvent->pdata)) {
+#ifndef WIN32        
         syslog(LOG_ERR,
                "[vscpl2drv-tcpipsrv] HLO handler: NULL event pointer.");
+#endif               
         return false;
     }
 
@@ -298,7 +330,9 @@ CTcpipSrv::handleHLO(vscpEvent* pEvent)
 
     //CHLO hlo;
     //if (!hlo.parseHLO(j, pEvent )) {
+#ifndef WIN32        
     //     syslog(LOG_ERR, "[vscpl2drv-tcpipsrv] Failed to parse HLO.");
+#endif    
     //     return false;
     // }
 
@@ -320,7 +354,7 @@ CTcpipSrv::handleHLO(vscpEvent* pEvent)
     printf("%s\n", j.dump().c_str());
 
     if (m_j_config["users"].is_array()) {
-        printf("Yes it's an array %lu - %s\n", 
+        printf("Yes it's an array %zu - %s\n", 
                     m_j_config["users"].size(),
                     m_j_config["users"][0]["name"].get<std::string>().c_str());
     }
@@ -328,7 +362,9 @@ CTcpipSrv::handleHLO(vscpEvent* pEvent)
     // Must be an operation
     if (!j["op"].is_string() || 
              j["op"].is_null()) {
+#ifndef WIN32                 
         syslog(LOG_ERR,"[vscpl2drv-tcpipsrv] HLO-command: Missing op [%s]",j.dump().c_str());         
+#endif
         return false;
     }
 
@@ -366,7 +402,7 @@ CTcpipSrv::handleHLO(vscpEvent* pEvent)
         j_response["description"] = "NOOP commaned executed correctly.";
 
         memset(ex.data, 0, sizeof(ex.data));
-        ex.sizeData = strlen(buf);
+        ex.sizeData = (uint16_t)strlen(buf);
         memcpy(ex.data, buf, ex.sizeData);        
     }
     else if ( j.value("op","") == "readvar") {
@@ -466,7 +502,9 @@ CTcpipSrv::readVariable(vscpEventEx& ex, const json& json_req)
     } else if ("users" == j.value("name","")) {
         
         if (!m_j_config["users"].is_array()) {
+#ifndef WIN32            
             syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] 'users' must be of type array.");
+#endif            
             j["result"] = VSCP_ERROR_SUCCESS;
             goto abort;
         }
@@ -474,8 +512,10 @@ CTcpipSrv::readVariable(vscpEventEx& ex, const json& json_req)
         int index = j.value("index",0);  // get index
         if (index >= m_j_config["users"].size()) {
             // Index to large
+#ifndef WIN32            
             syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] index of array is to large [%u].", 
                 index >= m_j_config["users"].size());
+#endif                
             j["result"] = VSCP_ERROR_INDEX_OOB;
             goto abort;
         }
@@ -485,13 +525,15 @@ CTcpipSrv::readVariable(vscpEventEx& ex, const json& json_req)
 
     } else {
         j["result"] = VSCP_ERROR_MISSING;
+#ifndef WIN32        
         syslog(LOG_ERR,"Variable [] is unknown.");
+#endif        
     }
 
  abort:
 
     memset(ex.data, 0, sizeof(ex.data));
-    ex.sizeData = j.dump().length();
+    ex.sizeData = (uint16_t)j.dump().length();
     memcpy(ex.data, j.dump().c_str(), ex.sizeData);
 
     return true;
@@ -743,14 +785,18 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         
         // users must be array
         if (!m_j_config["users"].is_array()) {
+#ifndef WIN32            
             syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] 'users' must be of type array.");
+#endif            
             j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;
         }
 
         // Must be object
         if (!m_j_config["args"].is_object()) {
+#ifndef WIN32            
             syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] The user info must be an object.");
+#endif            
             j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;
         }
@@ -758,9 +804,11 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         int index = j.value("index",0);  // get index
         if (index >= m_j_config["users"].size()) {
             // Index to large
+#ifndef WIN32            
             syslog(LOG_WARNING, 
                         "[vscpl2drv-tcpipsrv] index of array is to large [%u].",
                         index >= m_j_config["users"].size());
+#endif                        
             j["result"] = VSCP_ERROR_INDEX_OOB;
             goto abort;
         }
@@ -772,13 +820,15 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
 
     } else {
         j["result"] = VSCP_ERROR_MISSING;
+#ifndef WIN32        
         syslog(LOG_ERR,"Variable [] is unknown.");
+#endif        
     }
 
  abort:
 
     memset(ex.data, 0, sizeof(ex.data));
-    ex.sizeData = j.dump().length();
+    ex.sizeData = (uint16_t)j.dump().length();
     memcpy(ex.data, j.dump().c_str(), ex.sizeData);
 
     return true;
@@ -801,14 +851,18 @@ CTcpipSrv::deleteVariable(vscpEventEx& ex, const json& json_reg)
         
         // users must be array
         if (!m_j_config["users"].is_array()) {
+#ifndef WIN32            
             syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] 'users' must be of type array.");
+#endif            
             j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;
         }
 
         // Must be object
         if (!m_j_config["args"].is_object()) {
+#ifndef WIN32            
             syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] The user info must be an object.");
+#endif            
             j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;
         }
@@ -816,9 +870,11 @@ CTcpipSrv::deleteVariable(vscpEventEx& ex, const json& json_reg)
         int index = j.value("index",0);  // get index
         if (index >= m_j_config["users"].size()) {
             // Index to large
+#ifndef WIN32            
             syslog(LOG_WARNING, 
                         "[vscpl2drv-tcpipsrv] index of array is to large [%u].",
                         index >= m_j_config["users"].size());
+#endif                        
             j["result"] = VSCP_ERROR_INDEX_OOB;
             goto abort;
         }
@@ -827,13 +883,15 @@ CTcpipSrv::deleteVariable(vscpEventEx& ex, const json& json_reg)
 
     } else {
         j["result"] = VSCP_ERROR_MISSING;
+#ifndef WIN32        
         syslog(LOG_WARNING, "[vscpl2drv-tcpipsrv] Variable [%s] is unknown.", j.value("name", "").c_str());
+#endif        
     }
 
 abort:
 
     memset(ex.data, 0, sizeof(ex.data));
-    ex.sizeData = j.dump().length();
+    ex.sizeData = (uint16_t)j.dump().length();
     memcpy(ex.data, j.dump().c_str(), ex.sizeData);
 
     return true;
@@ -867,11 +925,15 @@ bool
 CTcpipSrv::restart(void)
 {
     if (!stop()) {
+#ifndef WIN32        
         syslog(LOG_WARNING, "[vscpl2drv-tcpipsrv] Failed to stop VSCP tcp/ip server.");
+#endif        
     }
 
     if (!start()) {
+#ifndef WIN32        
         syslog(LOG_WARNING, "[vscpl2drv-tcpipsrv] Failed to start VSCP tcp/ip server.");
+#endif        
     }
 
     return true;
@@ -886,8 +948,10 @@ CTcpipSrv::eventExToReceiveQueue(vscpEventEx& ex)
 {
     vscpEvent* pev = new vscpEvent();
     if (!vscp_convertEventExToEvent(pev, &ex)) {
+#ifndef WIN32        
         syslog(LOG_ERR,
                "[vscpl2drv-tcpipsrv] Failed to convert event from ex to ev.");
+#endif               
         vscp_deleteEvent(pev);
         return false;
     }
@@ -902,8 +966,10 @@ CTcpipSrv::eventExToReceiveQueue(vscpEventEx& ex)
             vscp_deleteEvent(pev);
         }
     } else {
+#ifndef WIN32        
         syslog(LOG_ERR,
                "[vscpl2drv-tcpipsrv] Unable to allocate event storage.");
+#endif               
     }
     return true;
 }
@@ -948,18 +1014,24 @@ CTcpipSrv::sendEventToClient(CClientItem* pClientItem, const vscpEvent* pEvent)
 {
     // Must be valid pointers
     if (NULL == pClientItem) {
+#ifndef WIN32        
         syslog(LOG_ERR, "sendEventToClient - Pointer to clientitem is null");
+#endif        
         return false;
     }
     if (NULL == pEvent) {
+#ifndef WIN32        
         syslog(LOG_ERR, "sendEventToClient - Pointer to event is null");
+#endif        
         return false;
     }
 
     // Check if filtered out - if so do nothing here
     if (!vscp_doLevel2Filter(pEvent, &pClientItem->m_filter)) {
         if (m_j_config["enable-debug"].get<bool>()) {
+#ifndef WIN32            
             syslog(LOG_DEBUG, "sendEventToClient - Filtered out");
+#endif            
         }
         return false;
     }
@@ -968,7 +1040,9 @@ CTcpipSrv::sendEventToClient(CClientItem* pClientItem, const vscpEvent* pEvent)
     // client will not receive the message
     if (pClientItem->m_clientInputQueue.size() > m_j_config.value("max-out-queue", MAX_ITEMS_IN_QUEUE)) {
         if (m_j_config["enable-debug"].get<bool>()) {
+#ifndef WIN32            
             syslog(LOG_DEBUG, "sendEventToClient - overrun");
+#endif            
         }
         // Overrun
         pClientItem->m_statistics.cntOverruns++;
@@ -1006,7 +1080,9 @@ CTcpipSrv::sendEventAllClients(const vscpEvent* pEvent)
     std::deque<CClientItem*>::iterator it;
 
     if (NULL == pEvent) {
+#ifndef WIN32        
         syslog(LOG_ERR, "sendEventAllClients - No event to send");
+#endif        
         return false;
     }
 
@@ -1018,12 +1094,16 @@ CTcpipSrv::sendEventAllClients(const vscpEvent* pEvent)
 
         if (NULL != pClientItem) {
             if (m_j_config["enable-debug"].get<bool>()) {
+#ifndef WIN32                
                 syslog(LOG_DEBUG,
                        "Send event to client [%s]",
                        pClientItem->m_strDeviceName.c_str());
+#endif                       
             }
             if (!sendEventToClient(pClientItem, pEvent)) {
+#ifndef WIN32                
                 syslog(LOG_ERR, "sendEventAllClients - Failed to send event");
+#endif                
             }
         }
     }
@@ -1041,14 +1121,18 @@ bool
 CTcpipSrv::startTcpipSrvThread(void)
 {
     if (__VSCP_DEBUG_TCP) {
+#ifndef WIN32        
         syslog(LOG_DEBUG, "Controlobject: Starting TCP/IP interface...");
+#endif        
     }
 
     // Create the tcp/ip server data object
     m_ptcpipSrvObject = (tcpipListenThreadObj*)new tcpipListenThreadObj(this);
     if (NULL == m_ptcpipSrvObject) {
+#ifndef WIN32        
         syslog(LOG_ERR,
                "Controlobject: Failed to allocate storage for tcp/ip.");
+#endif               
     }
 
     // Set the port to listen for connections on
@@ -1060,8 +1144,10 @@ CTcpipSrv::startTcpipSrvThread(void)
                        m_ptcpipSrvObject)) {
         delete m_ptcpipSrvObject;
         m_ptcpipSrvObject = NULL;
+#ifndef WIN32        
         syslog(LOG_ERR,
                "Controlobject: Unable to start the tcp/ip listen thread.");
+#endif               
         return false;
     }
 
@@ -1079,7 +1165,9 @@ CTcpipSrv::stopTcpipSrvThread(void)
     m_ptcpipSrvObject->m_nStopTcpIpSrv = VSCP_TCPIP_SRV_STOP;
 
     if (__VSCP_DEBUG_TCP) {
+#ifndef WIN32        
         syslog(LOG_DEBUG, "Controlobject: Terminating TCP thread.");
+#endif        
     }
 
     pthread_join(m_tcpipListenThread, NULL);
@@ -1087,7 +1175,9 @@ CTcpipSrv::stopTcpipSrvThread(void)
     m_ptcpipSrvObject = NULL;
 
     if (__VSCP_DEBUG_TCP) {
+#ifndef WIN32        
         syslog(LOG_DEBUG, "Controlobject: Terminated TCP thread.");
+#endif        
     }
 
     return true;
@@ -1205,9 +1295,11 @@ CTcpipSrv::readEncryptionKey(const std::string& path)
         m_vscpkey = strStream.str();
     }
     catch (...) {
+#ifndef WIN32        
         syslog(LOG_ERR,
                 "[vscpl2drv-tcpipsrv] Failed to read encryption key file [%s]",
                 m_path.c_str());
+#endif                
         return false;
     }
 

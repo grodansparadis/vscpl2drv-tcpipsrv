@@ -41,7 +41,10 @@ if(NOT DEFINED PATCH_VERSION)
     SET(PATCH_VERSION "0")
 endif()
 
-add_subdirectory(man)
+# Man build and install
+if(NOT DEFINED WIN32)
+    add_subdirectory(man)
+endif()
 
 option(USE_SSL "Use SSL" TRUE)
 
@@ -134,7 +137,10 @@ find_package(OpenSSL REQUIRED)
 
 # Windows Libs
 if (WIN32)
+    #find_package(pthreads REQUIRED)
 
+    # Expat C library
+    find_package(expat CONFIG REQUIRED)
 else()
 
 endif()
@@ -149,8 +155,8 @@ else()
 endif()
 
 set(RESOURCE_FILES
-    README.md
-    forms/index.html)
+        README.md
+        forms/index.html)
 
 # Add files to library
 add_library(vscpl2drv-tcpipsrv
@@ -173,9 +179,9 @@ add_library(vscpl2drv-tcpipsrv
     ${VSCP_PATH}/src/vscp/common/vscphelper.h
     ${VSCP_PATH}/src/vscp/common/vscphelper.cpp
     ${VSCP_PATH}/src/vscp/common/canal.h
-    ${VSCP_PATH}/src/vscp/common/canaldlldef.h
-    ${VSCP_PATH}/src/vscp/common/vscpcanaldeviceif.h
-    ${VSCP_PATH}/src/vscp/common/vscpcanaldeviceif.cpp
+#    ${VSCP_PATH}/src/vscp/common/canaldlldef.h
+#    ${VSCP_PATH}/src/vscp/common/vscpcanaldeviceif.h
+#    ${VSCP_PATH}/src/vscp/common/vscpcanaldeviceif.cpp
     ${VSCP_PATH}/src/common/third_party/mustache.hpp
     ${VSCP_PATH}/src/common/sockettcp.h
     ${VSCP_PATH}/src/common/sockettcp.c
@@ -194,8 +200,11 @@ add_library(vscpl2drv-tcpipsrv
   ) 
 
 if (WIN32)
+    
+    find_package(pthreads REQUIRED)
     find_path(PTHREAD_INCLUDE_DIR pthread.h)
-    include_directories( PUBLIC ./windows 
+
+    include_directories( PUBLIC src/
         ${VSCP_PATH}/src/vscp/common/  
         ${VSCP_PATH}/src/common
         ${VSCP_PATH}/src/common/third_party
@@ -206,7 +215,7 @@ if (WIN32)
         ${LOCAL_WIN_INCLUDE}
         ${LOCAL_SYSLOG_INCLUDE} )
 else()
-    include_directories( PUBLIC ./linux 
+    include_directories( PUBLIC src/
         ${VSCP_PATH}/src/vscp/common/
         ${VSCP_PATH}/src/common
         ${VSCP_PATH}/src/common/third_party
@@ -221,14 +230,19 @@ if (WIN32)
         PThreads4W::PThreads4W_CXXEXC
         OpenSSL::SSL 
         OpenSSL::Crypto
-        OpenSSL::SSL OpenSSL::Crypto)
-    else()
+        OpenSSL::SSL OpenSSL::Crypto
+        expat::expat
+    )
+        
+else()
     target_link_libraries(vscpl2drv-tcpipsrv PRIVATE     
         m
         dl
         Threads::Threads
         OpenSSL::SSL 
-        OpenSSL::Crypto)
+        OpenSSL::Crypto
+        ${EXPAT_LIBRARIES}
+    )
 endif()
 
 # Install
