@@ -28,6 +28,9 @@
 
 cmake_minimum_required(VERSION 3.5)
 project(vscpl2drv-tcpipsrv LANGUAGES CXX C)
+set(PACKAGE_AUTHOR "Ake Hedman, Grodans Paradis AB")
+
+add_subdirectory(man)
 
 option(USE_SSL "Use SSL" TRUE)
 
@@ -75,22 +78,6 @@ endif()
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
-set(PANDOCCOMMAND_FOUND 0)
-find_program(PANDOCCOMMAND_PATH
-  NAMES pandoc
-  DOC "Path to Pandoc processor. Used to generate man pages from Markdown."
-)
-
-if(NOT EXISTS ${PANDOCCOMMAND_PATH})
-  message(WARNING "Pandoc processor not found, man pages will not be generated. Install pandoc or use the CMAKE_PROGRAM_PATH variable.")
-else()
-  set(PANDOCCOMMAND_FOUND 1)
-endif()
-
-# if (NOT ${PANDOCCOMMAND_FOUND})
-#     message("* * * PanDoc was not found * * *")
-# endif()
-
 # pthreads
 set (THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
@@ -117,19 +104,6 @@ endif()
 set(RESOURCE_FILES
     README.md
     forms/index.html)
-
-# man pages
-if (${PANDOCCOMMAND_FOUND})
-    ADD_CUSTOM_TARGET(man ALL)
-
-    ADD_CUSTOM_COMMAND(
-        TARGET man
-        DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/man/vscpl2drv-tcpipsrv.md
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/man
-        COMMAND pandoc -s -t man vscpl2drv-tcpipsrv.1.md -o ${CMAKE_CURRENT_BINARY_DIR}/vscpl2drv-tcpipsrv.1
-        OUTPUTS ${CMAKE_CURRENT_BINARY_DIR}/vscpl2drv-tcpipsrv.1
-)
-endif()
 
 # Add files to library
 add_library(vscpl2drv-tcpipsrv
@@ -226,8 +200,5 @@ else()
     install(TARGETS vscpl2drv-tcpipsrv
             LIBRARY DESTINATION ${CMAKE_INSTALL_FULL_}${VSCP_LEVEL2_DRV_DIR}
             RUNTIME DESTINATION ${CMAKE_INSTALL_MANDIR}            
-            RESOURCE DESTINATION ${CMAKE_INSTALL_FULL_}/var/lib/vscp/vscpd)
-    if (${PANDOCCOMMAND_FOUND})            
-        install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vscpl2drv-tcpipsrv.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
-    endif()    
+            RESOURCE DESTINATION ${CMAKE_INSTALL_FULL_}/var/lib/vscp/vscpd) 
 endif()
