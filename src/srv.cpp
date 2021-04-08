@@ -2708,8 +2708,7 @@ void *tcpipClientThread(void *pData) {
       fd.revents = 0;
 
       // Wait for data
-      if (stcp_poll(&fd, 1, 500, &(ptcpipobj->m_pParent->m_nStopTcpIpSrv)) <
-          0) {
+      if (stcp_poll(&fd, 1, 500, &(ptcpipobj->m_pParent->m_nStopTcpIpSrv)) < 0) {
         continue; // Nothing
       }
 
