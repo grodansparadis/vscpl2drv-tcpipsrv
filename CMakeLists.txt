@@ -30,6 +30,10 @@ cmake_minimum_required(VERSION 3.5)
 project(vscpl2drv-tcpipsrv LANGUAGES CXX C)
 set(PACKAGE_AUTHOR "Ake Hedman, Grodans Paradis AB")
 
+SET(MAJOR_VERSION "1")
+SET(MINOR_VERSION "0")
+SET(PATCH_VERSION "0")
+
 add_subdirectory(man)
 
 option(USE_SSL "Use SSL" TRUE)
@@ -48,6 +52,8 @@ option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
 
 # Default location for VSCP level II drivers
 set(VSCP_LEVEL2_DRV_DIR /var/lib/vscp/drivers/level2/)
+
+
 
 # Generate position-independent code (-fPIC on UNIX)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -71,6 +77,36 @@ if(WIN32)
 elseif(UNIX)
     set(LIBS_SYSTEM c stdc++)
 endif()
+
+#              * * * cpack * * *
+IF(EXISTS "${CMAKE_ROOT}/Modules/CPack.cmake")
+INCLUDE(InstallRequiredSystemLibraries)
+
+SET(CPACK_SET_DESTDIR "on")
+SET(CPACK_PACKAGING_INSTALL_PREFIX "/tmp")
+SET(CPACK_GENERATOR "DEB" "RPM" "TGZ")
+ 
+SET(CPACK_PACKAGE_DESCRIPTION "VSCP driver for tcp/ip server")
+SET(CPACK_PACKAGE_DESCRIPTION_SUMMARY "VSCP level II Driver for VSCP that export a server interface for the VSCP tcp/ip link protocol")
+SET(CPACK_PACKAGE_VENDOR "Grodans Paradis AB")
+SET(CPACK_PACKAGE_CONTACT "akhe@grodansparadis.com")
+SET(CPACK_PACKAGE_VERSION_MAJOR "${MAJOR_VERSION}")
+SET(CPACK_PACKAGE_VERSION_MINOR "${MINOR_VERSION}")
+SET(CPACK_PACKAGE_VERSION_PATCH "${PATCH_VERSION}")
+SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${MAJOR_VERSION}.${MINOR_VERSION}.${CPACK_PACKAGE_VERSION_PATCH}")
+SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${MAJOR_VERSION}.${MINOR_VERSION}.${CPACK_PACKAGE_VERSION_PATCH}")
+
+SET(CPACK_DEBIAN_PACKAGE_DEPENDS " libexpat-dev, libssl-dev ")
+
+SET(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+SET(CPACK_DEBIAN_PACKAGE_SECTION "network")
+SET(CPACK_DEBIAN_ARCHITECTURE ${CMAKE_SYSTEM_PROCESSOR})
+ 
+SET(CPACK_COMPONENTS_ALL Libraries ApplicationData)
+
+INCLUDE(CPack)
+ 
+ENDIF(EXISTS "${CMAKE_ROOT}/Modules/CPack.cmake")
 
 if (MSVC)
 
