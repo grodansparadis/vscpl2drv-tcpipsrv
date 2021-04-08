@@ -194,6 +194,7 @@ add_library(vscpl2drv-tcpipsrv
   ) 
 
 if (WIN32)
+    find_path(PTHREAD_INCLUDE_DIR pthread.h)
     include_directories( PUBLIC ./windows 
         ${VSCP_PATH}/src/vscp/common/  
         ${VSCP_PATH}/src/common
@@ -228,15 +229,6 @@ if (WIN32)
         Threads::Threads
         OpenSSL::SSL 
         OpenSSL::Crypto)
-endif()
-
-if(WIN32)
-	add_definitions(-D_CRT_SECURE_NO_WARNINGS)
-    add_definitions(-DWIN32_LEAN_AND_MEANS)
-    set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
-    set(LIBS_SYSTEM ws2_32)
-elseif(UNIX)
-    set(LIBS_SYSTEM c stdc++)
 endif()
 
 # Install

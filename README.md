@@ -66,7 +66,111 @@ You need build-essentials and git installed on your system
 >sudo apt install build-essential git
 
 ## How to build the driver on Windows
-tbd
+
+### Install the vcpkg package manager
+
+You need the vcpkg package manager on windows. Install it with
+
+```bash
+git clone https://github.com/microsoft/vcpkg.git
+```
+
+then go into the folder
+
+```bash
+cd vcpkg
+```
+
+Run the vcpkg bootstrapper command
+
+```bash
+bootstrap-vcpkg.bat
+```
+
+The process is described in detail [here](https://docs.microsoft.com/en-us/cpp/build/install-vcpkg?view=msvc-160&tabs=windows)
+
+To [integrate with Visual Studio](https://docs.microsoft.com/en-us/cpp/build/integrate-vcpkg?view=msvc-160) run
+
+```bash
+vcpkg integrate install
+```
+
+Install the required libs
+
+```bash
+vcpkg install pthread:x64-windows
+vcpkg install expat:x64-windows
+vcpkg install openssl:x64-windows
+```
+
+Full usage is describe [here](https://docs.microsoft.com/en-us/cpp/build/manage-libraries-with-vcpkg?view=msvc-160&tabs=windows)
+
+### Get the source
+
+You need to checkout the VSCP main repository code in addition to the driver repository. You do this with
+
+```bash
+  git clone https://github.com/grodansparadis/vscp.git
+  cd vscp
+  git checkout development
+``` 
+
+and the vscpl2drv-tcpipsrv code
+
+```bash
+git clone https://github.com/grodansparadis/vscpl2drv-tcpipsrv.git
+```
+
+If you check out both at the same directory level the *-DVSCP_PATH=path-vscp-repository* in next step is not needed.
+
+### Build the driver
+
+Build as usual but use
+
+```bash
+cd vscpl2drv-tcpipsrv
+mkdir build
+cd build
+cmake .. -CMAKE_BUILD_TYPE=Release|Debug -DCMAKE_TOOLCHAIN_FILE=E:\src\vcpkg\scripts\buildsystems\vcpkg.cmake -DVSCP_PATH=path-vscp-repository
+```
+
+The **CMAKE_TOOLCHAIN_FILE** path may be different in your case
+
+Note that *Release|Debug* should be either *Release* or *Debug*
+
+The windows build files can now be found in the build folder and all needed files to run the project can  after build - be found in build/release or build/Debug depending on CMAKE_BUILD_TYPE setting.
+
+Building and configuration is simplified with VS Code installed. Configure/build/run can be done (se lower toolbar). Using VS Code it ,ay be useful to add
+
+```json
+"cmake.configureSettings": {
+   "CMAKE_BUILD_TYPE": "${buildType}"
+}
+``` 
+
+to your settings.json file.
+
+To build at the command prompt use
+
+```bash
+msbuild vscp-works-qt.sln
+```
+
+Note that you must have a *developer command prompt*
+
+### Build deploy packages 
+
+Install NSIS from [this site](https://sourceforge.net/projects/nsis/).
+
+Run 
+
+```bash
+cpack ...
+```
+ 
+in the build folder.
+
+
 
 ## Configuration
 
