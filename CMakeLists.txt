@@ -88,7 +88,7 @@ elseif(UNIX)
     set(LIBS_SYSTEM c stdc++)
 endif()
 
-#              * * * cpack * * *
+#   ===========================  cpack  ===========================
 IF(EXISTS "${CMAKE_ROOT}/Modules/CPack.cmake")
 INCLUDE(InstallRequiredSystemLibraries)
 
@@ -109,6 +109,12 @@ SET(CPACK_PACKAGE_VERSION_MINOR "${MINOR_VERSION}")
 SET(CPACK_PACKAGE_VERSION_PATCH "${PATCH_VERSION}")
 SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${MAJOR_VERSION}.${MINOR_VERSION}.${CPACK_PACKAGE_VERSION_PATCH}")
 SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${MAJOR_VERSION}.${MINOR_VERSION}.${CPACK_PACKAGE_VERSION_PATCH}")
+#SET(CPACK_IGNORE_FILES "\\.psd$;/CVS/;/\\.svn/;/\\.git/;\\.swp$;/CMakeLists.txt.user;\\.#;/#;\\.tar.gz$;/CMakeFiles/;CMakeCache.txt;\\.qm$;/build/;\\.diff$;.DS_Store'")
+
+SET(CPACK_NSIS_INSTALLED_ICON_NAME "${APP_LOW_NAME}.ico")
+SET(CPACK_NSIS_HELP_LINK ${APP_URL})
+SET(CPACK_NSIS_URL_INFO_ABOUT ${APP_URL})
+SET(CPACK_NSIS_CONTACT ${APP_EMAIL})
 
 SET(CPACK_DEBIAN_PACKAGE_DEPENDS " libexpat-dev, libssl-dev ")
 
@@ -179,9 +185,6 @@ add_library(vscpl2drv-tcpipsrv
     ${VSCP_PATH}/src/vscp/common/vscphelper.h
     ${VSCP_PATH}/src/vscp/common/vscphelper.cpp
     ${VSCP_PATH}/src/vscp/common/canal.h
-#    ${VSCP_PATH}/src/vscp/common/canaldlldef.h
-#    ${VSCP_PATH}/src/vscp/common/vscpcanaldeviceif.h
-#    ${VSCP_PATH}/src/vscp/common/vscpcanaldeviceif.cpp
     ${VSCP_PATH}/src/common/third_party/mustache.hpp
     ${VSCP_PATH}/src/common/sockettcp.h
     ${VSCP_PATH}/src/common/sockettcp.c
