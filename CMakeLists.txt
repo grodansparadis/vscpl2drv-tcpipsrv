@@ -30,9 +30,16 @@ cmake_minimum_required(VERSION 3.5)
 project(vscpl2drv-tcpipsrv LANGUAGES CXX C)
 set(PACKAGE_AUTHOR "Ake Hedman, Grodans Paradis AB")
 
-SET(MAJOR_VERSION "1")
-SET(MINOR_VERSION "0")
-SET(PATCH_VERSION "0")
+# Version settings
+if(NOT DEFINED MAJOR_VERSION)
+    SET(MAJOR_VERSION "1")
+endif()
+if(NOT DEFINED MINOR_VERSION)
+    SET(MINOR_VERSION "0")
+endif()
+if(NOT DEFINED PATCH_VERSION)
+    SET(PATCH_VERSION "0")
+endif()
 
 add_subdirectory(man)
 

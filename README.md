@@ -11,9 +11,9 @@ The tcp/ip driver act as a tcp/ip server for the [VSCP tcp/ip link protocol](htt
 ## Install the driver on Linux
 You can install the driver using the debian package with
 
-> sudo apt install ./vscpl2drv-tcpipsrv.deb
+> sudo apt install ./vscpl2drv-tcpipsrv_x.y.z.deb
 
-the driver will be installed to /usr/lib
+the driver will be installed to /var/lib/vscp/drivers/level2
 
 After installing the driver you need to add it to the vscpd.conf file (/etc/vscp/vscpd.conf). Se the *configuration* section below.
 
@@ -27,15 +27,27 @@ A sample configuration file is make available in */usr/share/vscpl2drv-tcpipsrv.
 tbd
 
 ## How to build the driver on Linux
-To build this driver you to clone the driver source
 
-The build used **pandoc** for man-page generation so you should install it first with
+- sudo git clone https://github.com/grodansparadis/vscp.git
+- sudo https://github.com/grodansparadis/vscpl2drv-tcpipsrv.git development
+- sudo apt install pandoc           (comment: optional)
+- sudo apt install build-essential
+- sudo apt install cmake
+- sudo apt install libexpat-dev
+- sudo apt install libssl-dev
+- sudo apt install rpm              (comment: only if you want to create install packages)
+- cd vscpl2drv-tcpipsrv
+- mkdir build
+- cd build
+- cmake ..
+- make
+- make install
+- sudo cpack ..                     (comment: only if you want to create install packages)
 
-```
-sudo apt install pandoc
-```
 
-If you skip it the build will give you some errors (which you can ignore if you don't care about the man page)
+Install of pandoc is only needed if man pages needs to be rebuilt. This is normally already done and available in the repository.
+
+
 
 
 ```
