@@ -84,7 +84,7 @@ INCLUDE(InstallRequiredSystemLibraries)
 
 SET(CPACK_SET_DESTDIR "on")
 SET(CPACK_PACKAGING_INSTALL_PREFIX "/tmp")
-SET(CPACK_GENERATOR "DEB" "RPM" "TGZ" "zip")
+SET(CPACK_GENERATOR "DEB" "RPM" "TGZ" "ZIP")
  
 SET(CPACK_PACKAGE_DESCRIPTION "VSCP driver for tcp/ip server")
 SET(CPACK_PACKAGE_DESCRIPTION_SUMMARY "VSCP level II Driver for VSCP that export a server interface for the VSCP tcp/ip link protocol")
