@@ -3,7 +3,7 @@
 !define APP_NAME "@APP_NAME@"
 !define EXE_NAME "@EXE_NAME@"
 !define README_FILE "README"
-!define LICENSE_FILE "@PROJECT_SOURCE_DIR@resourcestextLICENSE"
+!define LICENSE_FILE "@PROJECT_SOURCE_DIR@/LICENSE"
 !define MUI_ICON "@PROJECT_SOURCE_DIR@resourcesgraphics@APP_LOW_NAME@.ico"
 !define MUI_UNICON "@PROJECT_SOURCE_DIR@resourcesgraphics@APP_LOW_NAME@.ico"
 !define MUI_WELCOMEFINISHPAGE_BITMAP "@PROJECT_SOURCE_DIR@resourcesgraphics@APP_LOW_NAME@-banner.bmp"

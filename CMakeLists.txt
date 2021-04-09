@@ -30,6 +30,9 @@ cmake_minimum_required(VERSION 3.5)
 project(vscpl2drv-tcpipsrv LANGUAGES CXX C)
 set(PACKAGE_AUTHOR "Ake Hedman, Grodans Paradis AB")
 
+# Load packaging facilities.
+INCLUDE(CPack)
+
 # Version settings
 if(NOT DEFINED MAJOR_VERSION)
     SET(MAJOR_VERSION "1")
@@ -39,6 +42,27 @@ if(NOT DEFINED MINOR_VERSION)
 endif()
 if(NOT DEFINED PATCH_VERSION)
     SET(PATCH_VERSION "0")
+endif()
+
+SET(CPACK_PACKAGE_DESCRIPTION "VSCP driver for tcp/ip server")
+SET(CPACK_PACKAGE_DESCRIPTION_SUMMARY "VSCP level II Driver for VSCP that export a server interface for the VSCP tcp/ip link protocol")
+SET(CPACK_PACKAGE_VENDOR "Grodans Paradis AB")
+SET(CPACK_PACKAGE_CONTACT "akhe@grodansparadis.com")
+
+if(NOT DEFINED APP_LOW_NAME)
+set(APP_LOW_NAME "vscpl2drv-tcpipsrv")
+endif()
+
+if(NOT DEFINED APP_NAME)
+set(APP_NAME "VSCPL2DEV-TCPIPSRV")
+endif()
+
+if(NOT DEFINED APP_URL)
+set(APP_URL "https://github.com/grodansparadis/vscpl2drv-tcpipsrv")
+endif()
+
+if(NOT DEFINED APP_VERSION)
+set(APP_VERSION, "${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION}")
 endif()
 
 # Man build and install
@@ -96,39 +120,39 @@ IF(WIN32)
 SET(CPACK_SET_DESTDIR OFF)
 ELSE()
 SET(CPACK_SET_DESTDIR ON)
-ENDIF()
 SET(CPACK_PACKAGING_INSTALL_PREFIX "/var/lib/vscp/drivers")
+ENDIF()
+
 IF(WIN32)
 SET(CPACK_GENERATOR "NSIS" "ZIP")
 ELSE()
 SET(CPACK_GENERATOR "DEB" "RPM" "TGZ" "ZIP")
 ENDIF()
  
-SET(CPACK_PACKAGE_DESCRIPTION "VSCP driver for tcp/ip server")
-SET(CPACK_PACKAGE_DESCRIPTION_SUMMARY "VSCP level II Driver for VSCP that export a server interface for the VSCP tcp/ip link protocol")
-SET(CPACK_PACKAGE_VENDOR "Grodans Paradis AB")
-SET(CPACK_PACKAGE_CONTACT "akhe@grodansparadis.com")
+set(CPACK_PACKAGE_NAME ${APP_LOW_NAME})
+set(CPACK_PACKAGE_INSTALL_REGISTRY_KEY ${APP_NAME})
+
+
 SET(CPACK_PACKAGE_VERSION_MAJOR "${MAJOR_VERSION}")
 SET(CPACK_PACKAGE_VERSION_MINOR "${MINOR_VERSION}")
 SET(CPACK_PACKAGE_VERSION_PATCH "${PATCH_VERSION}")
 SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${MAJOR_VERSION}.${MINOR_VERSION}.${CPACK_PACKAGE_VERSION_PATCH}")
 SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${MAJOR_VERSION}.${MINOR_VERSION}.${CPACK_PACKAGE_VERSION_PATCH}")
-#SET(CPACK_IGNORE_FILES "\\.psd$;/CVS/;/\\.svn/;/\\.git/;\\.swp$;/CMakeLists.txt.user;\\.#;/#;\\.tar.gz$;/CMakeFiles/;CMakeCache.txt;\\.qm$;/build/;\\.diff$;.DS_Store'")
+SET(CPACK_IGNORE_FILES "\\.psd$;/CVS/;/\\.svn/;/\\.git/;\\.swp$;/CMakeLists.txt.user;\\.#;/#;\\.tar.gz$;/CMakeFiles/;CMakeCache.txt;\\.qm$;/build/;\\.diff$;.DS_Store'")
+set(CPACK_SOURCE_IGNORE_FILES ${CPACK_IGNORE_FILES})
 
 SET(CPACK_NSIS_INSTALLED_ICON_NAME "${APP_LOW_NAME}.ico")
 SET(CPACK_NSIS_HELP_LINK ${APP_URL})
 SET(CPACK_NSIS_URL_INFO_ABOUT ${APP_URL})
-SET(CPACK_NSIS_CONTACT ${APP_EMAIL})
 
+IF(NOT DEFINED WIN32)
 SET(CPACK_DEBIAN_PACKAGE_DEPENDS " libexpat-dev, libssl-dev ")
-
 SET(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
 SET(CPACK_DEBIAN_PACKAGE_SECTION "network")
 SET(CPACK_DEBIAN_ARCHITECTURE ${CMAKE_SYSTEM_PROCESSOR})
- 
-SET(CPACK_COMPONENTS_ALL Libraries ApplicationData)
+ENDIF()
 
-INCLUDE(CPack)
+SET(CPACK_COMPONENTS_ALL Libraries ApplicationData)
 
 # Configure file with custom definitions for NSIS.
 configure_file(
@@ -138,9 +162,6 @@ configure_file(
  
 ENDIF(EXISTS "${CMAKE_ROOT}/Modules/CPack.cmake")
 
-if (MSVC)
-
-endif()
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
@@ -260,8 +281,17 @@ endif()
 
 # Install
 if(WIN32)
+    # Runtime files
     install(TARGETS vscpl2drv-tcpipsrv
-            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+    # Dependencies
+    file(GLOB deps_files "${CMAKE_BINARY_DIR}/Release/*.dll")
+    install(FILES ${deps_files} DESTINATION ${CMAKE_INSTALL_BINDIR})
+    # LICENSE
+    install(FILES "${CMAKE_BINARY_DIR}/../LICENSE" DESTINATION "${CMAKE_INSTALL_BINDIR}/..")
+    # README
+    install(FILES "${CMAKE_BINARY_DIR}/../README.md" DESTINATION "${CMAKE_INSTALL_BINDIR}/..")
 else()
     install(TARGETS vscpl2drv-tcpipsrv
             LIBRARY DESTINATION ${CMAKE_INSTALL_FULL_}${VSCP_LEVEL2_DRV_DIR}
