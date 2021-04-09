@@ -92,10 +92,14 @@ endif()
 IF(EXISTS "${CMAKE_ROOT}/Modules/CPack.cmake")
 INCLUDE(InstallRequiredSystemLibraries)
 
-SET(CPACK_SET_DESTDIR "on")
+IF(WIN32)
+SET(CPACK_SET_DESTDIR OFF)
+ELSE()
+SET(CPACK_SET_DESTDIR ON)
+ENDIF()
 SET(CPACK_PACKAGING_INSTALL_PREFIX "/var/lib/vscp/drivers")
 IF(WIN32)
-SET(CPACK_GENERATOR "NSIS" "RPM" "ZIP")
+SET(CPACK_GENERATOR "NSIS" "ZIP")
 ELSE()
 SET(CPACK_GENERATOR "DEB" "RPM" "TGZ" "ZIP")
 ENDIF()
@@ -125,6 +129,12 @@ SET(CPACK_DEBIAN_ARCHITECTURE ${CMAKE_SYSTEM_PROCESSOR})
 SET(CPACK_COMPONENTS_ALL Libraries ApplicationData)
 
 INCLUDE(CPack)
+
+# Configure file with custom definitions for NSIS.
+configure_file(
+  ${PROJECT_SOURCE_DIR}/resources/nsis/NSIS.definitions.nsh.in
+  ${CMAKE_CURRENT_BINARY_DIR}/resources/nsis/NSIS.definitions.nsh
+)
  
 ENDIF(EXISTS "${CMAKE_ROOT}/Modules/CPack.cmake")
 
