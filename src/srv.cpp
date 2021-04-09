@@ -77,6 +77,12 @@ using json = nlohmann::json;
 
 using namespace kainjow::mustache;
 
+#ifdef WIN32
+#define STRDUP  _strdup
+#else 
+#define STRDUP  strdup
+#endif
+
 #define TCPIPSRV_INACTIVITY_TIMOUT (3600 * 12)
 
 // Worker threads
@@ -151,25 +157,25 @@ void *tcpipListenThread(void *pData) {
 
   // Certificate
   if (pObj->m_j_config.value("ssl_certificate", "").length()) {
-    opts.pem = _strdup(pObj->m_j_config.value("ssl_certificate", "").c_str());
+    opts.pem = STRDUP(pObj->m_j_config.value("ssl_certificate", "").c_str());
   }
 
   // Certificate chain
   if (pObj->m_j_config.value("ssl_certificate_chain", "").length()) {
     opts.chain =
-        _strdup(pObj->m_j_config.value("ssl_certificate_chain", "").c_str());
+        STRDUP(pObj->m_j_config.value("ssl_certificate_chain", "").c_str());
   }
 
   opts.verify_peer = pObj->m_j_config.value("ssl_verify_peer", 0);
 
   // CA path
   if (pObj->m_j_config.value("ssl_ca_path", "").length()) {
-    opts.ca_path = _strdup(pObj->m_j_config.value("ssl_ca_path", "").c_str());
+    opts.ca_path = STRDUP(pObj->m_j_config.value("ssl_ca_path", "").c_str());
   }
 
   // CA file
   if (pObj->m_j_config.value("ssl_ca_file", "").length()) {
-    opts.chain = _strdup(pObj->m_j_config.value("ssl_ca_file", "").c_str());
+    opts.chain = STRDUP(pObj->m_j_config.value("ssl_ca_file", "").c_str());
   }
 
   opts.verify_depth = pObj->m_j_config.value("ssl_verify_depth", 9);
@@ -178,7 +184,7 @@ void *tcpipListenThread(void *pData) {
   opts.protocol_version = pObj->m_j_config.value("ssl_protocol_version", 3);
 
   // chiper list
-  opts.chipher_list = _strdup( pObj->m_j_config
+  opts.chipher_list = STRDUP( pObj->m_j_config
           .value("ssl_cipher_list", "DES-CBC3-SHA:AES128-SHA:AES128-GCM-SHA256")
           .c_str());
 
