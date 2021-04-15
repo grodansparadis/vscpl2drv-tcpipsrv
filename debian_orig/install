@@ -1,2 +1,0 @@
-build/vscpl2drv-tcpipsrv.so /var/lib/vscp/drivers/level2/
-install-files/vscpl2drv-tcpipsrv.conf /var/lib/vscp/vscpd
