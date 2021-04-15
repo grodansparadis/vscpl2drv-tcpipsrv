@@ -197,13 +197,15 @@ set(RESOURCE_FILES
 
 # Add files to library
 add_library(vscpl2drv-tcpipsrv
-    src/vscpl2drv-tcpipsrv.cpp
-    src/tcpipsrv.cpp
-    src/srv.cpp
-    src/userlist.h
-    src/userlist.cpp
-    src/clientlist.h
-    src/clientlist.cpp
+    ./src/vscpl2drv-tcpipsrv.cpp
+    ./src/tcpipsrv.cpp
+    ./src/srv.cpp
+    ./src/userlist.h
+    ./src/userlist.cpp
+    ./src/clientlist.h
+    ./src/clientlist.cpp
+    ${VSCP_PATH}/src/common/third_party/mustache.hpp
+    ${VSCP_PATH}/src/common/third_party/spdlog-1.8.5/include    
     ${VSCP_PATH}/src/vscp/common/vscp.h
     ${VSCP_PATH}/src/vscp/common/vscpremotetcpif.h
     ${VSCP_PATH}/src/vscp/common/vscpremotetcpif.cpp
@@ -216,7 +218,6 @@ add_library(vscpl2drv-tcpipsrv
     ${VSCP_PATH}/src/vscp/common/vscphelper.h
     ${VSCP_PATH}/src/vscp/common/vscphelper.cpp
     ${VSCP_PATH}/src/vscp/common/canal.h
-    ${VSCP_PATH}/src/common/third_party/mustache.hpp
     ${VSCP_PATH}/src/common/sockettcp.h
     ${VSCP_PATH}/src/common/sockettcp.c
     ${VSCP_PATH}/src/common/vscpbase64.h
@@ -230,7 +231,7 @@ add_library(vscpl2drv-tcpipsrv
     ${VSCP_PATH}/src/common/vscpmd5.h
     ${VSCP_PATH}/src/common/vscpmd5.c
     ${VSCP_PATH}/src/common/fastpbkdf2.h
-    ${VSCP_PATH}/src/common/fastpbkdf2.c      
+    ${VSCP_PATH}/src/common/fastpbkdf2.c
   ) 
 
 if (WIN32)

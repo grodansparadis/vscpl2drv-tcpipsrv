@@ -216,7 +216,9 @@ The configuration file have the following format
 
 ```json
 {
-    "debug" : false,
+    "debug": false,
+    "debug-path" : "path to debug file",
+    "debug-pattern" : "path to debug file",
     "write" : false,
     "interface": "[s]tcp://ip-address:port",
     "auth-domain": "mydomain.com",
@@ -224,7 +226,7 @@ The configuration file have the following format
     "response-timeout" : 0,
     "encryption" : "none|aes128|aes192|aes256",
     "filter" : "incoming-filter",
-    "mask" : "incoming-mask", 
+    "mask" : "incoming-mask",
     "ssl_certificate" : "/srv/vscp/certs/tcpip_server.pem",
     "ssl_certificate_chain" : "",
     "ssl_verify_peer" : false,
@@ -239,7 +241,13 @@ The configuration file have the following format
 ```
 
 ##### debug
-Set debug to "true" to get debug information written to syslog. This can be a valuable help if things does not behave as expected.
+Set to true to enable writing of debug data to a log file.
+
+##### debug-path
+Set debug-path to a writable path to a file to get debug information written to that file. This can be a valuable help if things does not behave as expected.
+
+##### debug-pattern
+Pattern to use for log file
 
 ##### write
 If write is true dynamic changes to the configuration file will be possible to save dynamically to disk. That is, settings you do at runtime can be saved and be persistent. The safest place for a configuration file is in the VSCP configuration folder */etc/vscp/* but for dynamic saves are not allowed if you don't run the VSCP daemon as root (which you should not). Next best place is to use the folder */var/lib/vscp/drivername/configure.xml*. This folder is created and a default configuration is written here when the driver is installed.
@@ -371,12 +379,13 @@ Disk IO performance can be improved when keeping the certificates and keys store
 
  #### Format for user database
 
+
  ```json
  {
 	"users" : [
 		{
 			"user" : "admin",
-			"credentials"  : "md5 checksum",
+			"credentials"  : "fastpbkdf2 over 'user:auth-domain:password'",
 			"rights" : rights,
 			"name" : "Full name",
 			"events" : [
@@ -398,7 +407,7 @@ Disk IO performance can be improved when keeping the certificates and keys store
  The login user name
 
  ##### credentials
- The md5 checksum calculated over "user:auth-domain:password"
+ fastpbkdf2 over "user:auth-domain:password" stored as 'pw:salt'
 
  ##### rights
  Rights for this user as a 32-bit rights number.

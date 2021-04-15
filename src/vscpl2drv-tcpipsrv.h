@@ -61,6 +61,9 @@ typedef int BOOL;
 #define FALSE 0
 #endif
 
+// This is the vendor string - Change to your own value
+#define VSCP_DLL_VENDOR "Grodans Paradis AB, Sweden, https://www.grodansparadis.com"
+
 
 /*!
     Add a driver object

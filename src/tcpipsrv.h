@@ -7,7 +7,7 @@
 //
 // This file is part of the VSCP (http://www.vscp.org)
 //
-// Copyright (C) 2000-2020 Ake Hedman,
+// Copyright (C) 2000-2021 Ake Hedman,
 // Grodans Paradis AB, <akhe@grodansparadis.com>
 //
 // This file is distributed in the hope that it will be useful,
@@ -59,7 +59,7 @@ using json = nlohmann::json;
 
 const uint16_t MAX_ITEMS_IN_QUEUE = 32000;
 
-#define DRIVER_COPYRIGHT "Copyright © 2000-2020 Ake Hedman, Grodans Paradis AB, https://www.grodansparadis.com"
+#define DRIVER_COPYRIGHT "Copyright © 2000-2021 Ake Hedman, Grodans Paradis AB, https://www.grodansparadis.com"
 
 // Seconds before trying to reconnect to a broken connection
 #define VSCP_TCPIPLINK_DEFAULT_RECONNECT_TIME 30
