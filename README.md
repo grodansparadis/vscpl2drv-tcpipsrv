@@ -190,8 +190,8 @@ section on the following format
 <!-- Level II TCP/IP Server -->
 <driver enable="true"
     name="vscp-tcpip-srv"
-    path-driver="/usr/lib/vscpl2drv-tcpipsrv.so"
-    path-config="/var/lib/vscpl2drv-tcpipsrv/drv.conf"
+    path-driver="/usr/lib/vscp/drivers/level2/vscpl2drv-tcpipsrv.so"
+    path-config="/etc/vscp/vscpl2drv-tcpipsrv.conf"
     guid="FF:FF:FF:FF:FF:FF:FF:FC:88:99:AA:BB:CC:DD:EE:FF"
 </driver>
 ```
@@ -216,38 +216,54 @@ The configuration file have the following format
 
 ```json
 {
-    "debug": false,
-    "debug-path" : "path to debug file",
-    "debug-pattern" : "path to debug file",
     "write" : false,
     "interface": "[s]tcp://ip-address:port",
+    "logging": { 
+        "file-log-level": "off|critical|error|warn|info|debug|trace",
+        "file-log-path" : "path to log file",
+        "file-log-pattern": "Pattern for log file",
+        "file-log-max-size": 50000,
+        "file-log-max-files": 7,
+    },    
     "auth-domain": "mydomain.com",
+    "key-file": "/var/vscp/.vscp.key"
     "path-users" : "/etc/vscp/tcpip_srv_users.json",
     "response-timeout" : 0,
-    "encryption" : "none|aes128|aes192|aes256",
-    "filter" : "incoming-filter",
-    "mask" : "incoming-mask",
-    "ssl_certificate" : "/srv/vscp/certs/tcpip_server.pem",
-    "ssl_certificate_chain" : "",
-    "ssl_verify_peer" : false,
-    "ssl_ca_path" : "",
-    "ssl_ca_file" : "",
-    "ssl_verify_depth" : 9,
-    "ssl_default_verify_paths" : true,
-    "ssl_cipher_list" : "DES-CBC3-SHA:AES128-SHA:AES128-GCM-SHA256",
-    "ssl_protocol_version" : 3,
-    "ssl_short_trust" : false,
+    "filter" : {
+        "in-filter" : "incoming filter on string form",
+        "in-mask" : "incoming mask on string form",
+        "out-filter" : "outgoing filter on string form",
+        "out-mask" : "outgoing mask on string form",
+    },
+    "tls": {
+        "certificate" : "/srv/vscp/certs/tcpip_server.pem",
+        "certificate_chain" : "",
+        "verify_peer" : false,
+        "ca-path" : "",
+        "ca-file" : "",
+        "verify_depth" : 9,
+        "default-verify-paths" : true,
+        "cipher-list" : "DES-CBC3-SHA:AES128-SHA:AES128-GCM-SHA256",
+        "protocol-version" : 3,
+        "short-trust" : false
+    }
 }
 ```
 
-##### debug
-Set to true to enable writing of debug data to a log file.
+##### file-log-level
+Set to one of "off|critical|error|warn|info|debug|trace" for log level.
 
-##### debug-path
-Set debug-path to a writable path to a file to get debug information written to that file. This can be a valuable help if things does not behave as expected.
+##### file-log-path" : "path to log file",
+Set a writable path to a file that will get log information written to that file. This can be a valuable help if things does not behave as expected.
 
-##### debug-pattern
-Pattern to use for log file
+##### file-log-pattern
+Pattern for log file rows.
+
+##### file-log-max-size
+Max size for log file before it will rotate and a new file is created. Default is 5 Mb.
+
+##### file-log-max-files
+Max number of log files to keep. Default is 7
 
 ##### write
 If write is true dynamic changes to the configuration file will be possible to save dynamically to disk. That is, settings you do at runtime can be saved and be persistent. The safest place for a configuration file is in the VSCP configuration folder */etc/vscp/* but for dynamic saves are not allowed if you don't run the VSCP daemon as root (which you should not). Next best place is to use the folder */var/lib/vscp/drivername/configure.xml*. This folder is created and a default configuration is written here when the driver is installed.

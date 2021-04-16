@@ -244,6 +244,7 @@ if (WIN32)
         ${VSCP_PATH}/src/common
         ${VSCP_PATH}/src/common/third_party
         ${VSCP_PATH}/src/common/third_party/nlohmann
+        ${VSCP_PATH}/src/common/third_party/spdlog-1.8.5/include
         ${PThreads4W_INCLUDE_DIR}
         ${CMAKE_BINARY_DIR}
         ${OPENSSL_INCLUDE_DIR}
@@ -255,6 +256,7 @@ else()
         ${VSCP_PATH}/src/common
         ${VSCP_PATH}/src/common/third_party
         ${VSCP_PATH}/src/common/third_party/nlohmann
+        ${VSCP_PATH}/src/common/third_party/spdlog-1.8.5/include
         ${CMAKE_BINARY_DIR}
         ${OPENSSL_INCLUDE_DIR}
         ${LOCAL_SYSLOG_INCLUDE} )
