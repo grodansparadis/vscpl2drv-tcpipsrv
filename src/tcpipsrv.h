@@ -340,6 +340,16 @@ class CTcpipSrv
     // Listen thread for tcp/ip connections
     pthread_t m_tcpipListenThread;
 
+    //**************************************************************************
+    //                                USERS
+    //**************************************************************************
+
+    // The list of users
+    CUserList m_userList;
+
+    // Mutex for users
+    pthread_mutex_t m_mutex_UserList;
+
 
     //**************************************************************************
     //                                CLIENTS
@@ -351,9 +361,7 @@ class CTcpipSrv
     // Mutex for client queue
     pthread_mutex_t m_mutex_clientList;
 
-    // The list of users
-    CUserList m_userList;
-    pthread_mutex_t m_mutex_UserList;
+    
 
     // Queue
     std::list<vscpEvent*> m_sendList;

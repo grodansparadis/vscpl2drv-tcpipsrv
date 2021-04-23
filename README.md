@@ -395,41 +395,42 @@ Disk IO performance can be improved when keeping the certificates and keys store
 
  #### Format for user database
 
-
  ```json
  {
 	"users" : [
 		{
 			"user" : "admin",
-			"credentials"  : "fastpbkdf2 over 'user:auth-domain:password'",
-			"rights" : rights,
-			"name" : "Full name",
-			"events" : [
-				{
-					"event" : vscp-class,
-					"type": vscp.type,
-					"dir" : "TX|RX|BOTH"
-					"priority" : 
-				}
-			]
+            "fullname" : "Full name",
+            "note" : "note about user-item",
+			"credentials"  : "fastpbkdf2 over 'user:password' using 256 bit system key (stored: item:iv)",
+            "filter" : "outgoing filter",
+			"rights" : "comma separated list of rights",
+            "remotes" : "comma separated list of hosts First char: +=allow -deny",
+			"events" : "comma separated list of events "TX|RX|BOTH;vscp-class;vscp.type;priority"
 		}
 	]
 }
- ```
+```
 
- Any number of users can be specified
+Any number of users can be specified
 
- ##### user
- The login user name
+##### user
+The login user name
 
- ##### credentials
- fastpbkdf2 over "user:auth-domain:password" stored as 'pw:salt'
+##### credentials
+fastpbkdf2 over "user:auth-domain:password" stored as 'pw:salt'
 
- ##### rights
- Rights for this user as a 32-bit rights number.
+credentials = encrypted_pw:iv where the encrypted_pw
+is calculated over md5(user:password)
+encrypted_pw = aes256(user,password,iv) encrypted with key 
+key = 256 bit, 32 byte number.
+user send "password" (no :) or encrypted_pw:iv (: present)
 
- ##### name
- Full name for user.
+##### rights
+Rights for this user as a 32-bit rights number.
+
+##### name
+Full name for user.
 
  ##### events
  This is a list with events the user is allowed to send and/or receive. If empty all events can be sent and received by the users.

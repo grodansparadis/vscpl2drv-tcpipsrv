@@ -463,7 +463,7 @@ CTcpipSrv::doLoadConfig(std::string& path)
         if (j.contains("in-filter")) {
             try {
                 std::string str = j["in-filter"].get<std::string>();
-                vscp_readFilterFromString( &m_filterIn, str.c_str());
+                vscp_readFilterFromString(&m_filterIn, str.c_str());
             }
             catch (const std::exception& ex) {
                 spdlog::error("Failed to read 'in-filter' Error='{}'", ex.what());    
@@ -480,7 +480,7 @@ CTcpipSrv::doLoadConfig(std::string& path)
         if (j.contains("in-mask")) {
             try {
                 std::string str = j["in-mask"].get<std::string>();
-                vscp_readMaskFromString( &m_filterIn, str.c_str());
+                vscp_readMaskFromString(&m_filterIn, str.c_str());
             }
             catch (const std::exception& ex) {
                 spdlog::error("Failed to read 'in-mask' Error='{}'", ex.what());    
@@ -497,7 +497,7 @@ CTcpipSrv::doLoadConfig(std::string& path)
         if (j.contains("out-filter")) {
             try {
                 std::string str = j["in-filter"].get<std::string>();
-                vscp_readFilterFromString( &m_filterOut, str.c_str());
+                vscp_readFilterFromString(&m_filterOut, str.c_str());
             }
             catch (const std::exception& ex) {
                 spdlog::error("Failed to read 'out-filter' Error='{}'", ex.what());    
@@ -514,7 +514,7 @@ CTcpipSrv::doLoadConfig(std::string& path)
         if (j.contains("out-mask")) {
             try {
                 std::string str = j["out-mask"].get<std::string>();
-                vscp_readMaskFromString( &m_filterOut, str.c_str());
+                vscp_readMaskFromString(&m_filterOut, str.c_str());
             }
             catch (const std::exception& ex) {
                 spdlog::error("Failed to read 'out-mask' Error='{}'", ex.what());    
@@ -713,15 +713,12 @@ CTcpipSrv::doLoadConfig(std::string& path)
                                     (*it).value("password", ""),
                                     (*it).value("full-name", ""),
                                     (*it).value("note", ""),
-                                    m_vscpkey,
                                     &receive_filter,
                                     (*it).value("privilege", "user"),
                                     (*it).value("allow-from", ""),
-                                    (*it).value("allow-events", ""),
-                                    (*it).value("flags", 0))) {
+                                    (*it).value("allow-events", ""))) {
                                        
-            spdlog::debug("[vscpl2drv-tcpipsrv] Failed to add client %s.",(*it).dump().c_str());
-       
+            spdlog::debug("[vscpl2drv-tcpipsrv] Failed to add client {}.",(*it).dump());       
         }
     }
 
