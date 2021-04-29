@@ -1,7 +1,7 @@
 {
-    "enable-debug" : true,
-    "enable-write" : true,
-    "vscp-key-file" : "/etc/vscp/vscp.key",
+    "debug" : true,
+    "write" : true,
+    "key-file" : "/etc/vscp/vscp.key",
     "max-out-queue" : 32000,
     "max-in-queue" : 32000,
     "interface" : "9598",
@@ -16,12 +16,31 @@
     "ssl-cipher-list" : "DES-CBC3-SHA:AES128-SHA:AES128-GCM-SHA256",
     "ssl-protocol-version" : 3,
     "ssl-short-trust" : false,
+    "logging" : {
+        "file-enable-log": true,
+        "file-log-level" : "debug",
+        "file-pattern" : "[vcpl2drv-tcpipsrv] [%^%l%$] %v",
+        "file-path" : "/tmp/vscpd.log",
+        "file-max-size" : 5242880,
+        "file-max-files" : 7,
+        "console-enable-log": true,
+        "console-log-level" : "debug",
+        "console-pattern" : "[vcpl2drv-tcpipsrv] [%^%l%$] %v"
+    },
     "users" : [
         {
             "name" : "admin",
             "password" : "D35967DEE4CFFB214124DFEEA7778BB0;582BCA078604C925852CDDEE0A8475556DEAA6DC6EFB004A353094900C97D3DE",
-            "privilege" : "admin",
-            "allow-from" : "",
+            "rights" : [
+                "admin",
+                "user",
+                "test1",
+                "test2"
+            ],
+            "remotes" : [
+                "+192.168.0.0/16",
+                "+fe80::/64"
+            ],
             "filter" : "",
             "mask" : "",
             "allow-events" : "",
@@ -31,7 +50,7 @@
         {
             "name" : "user",
             "password" : "D35967DEE4CFFB214124DFEEA7778BB0;582BCA078604C925852CDDEE0A8475556DEAA6DC6EFB004A353094900C97D3DE",
-            "privilege" : "user",
+            "rights" : "user",
             "allow-from" : "",
             "filter" : "",
             "mask" : "",
@@ -42,7 +61,7 @@
         {
             "name" : "special",
             "password" : "D35967DEE4CFFB214124DFEEA7778BB0;582BCA078604C925852CDDEE0A8475556DEAA6DC6EFB004A353094900C97D3DE",
-            "privilege" : "user",
+            "rights" : "user",
             "allowfrom" : "",
             "filter" : "",
             "mask" : "",

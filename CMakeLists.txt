@@ -199,11 +199,11 @@ set(RESOURCE_FILES
 add_library(vscpl2drv-tcpipsrv
     ./src/vscpl2drv-tcpipsrv.cpp
     ./src/tcpipsrv.cpp
-    ./src/srv.cpp
-    ./src/userlist.h
-    ./src/userlist.cpp
-    ./src/clientlist.h
-    ./src/clientlist.cpp
+    ./src/srv.cpp 
+    ${VSCP_PATH}/src/vscp/common/userlist.h
+    ${VSCP_PATH}/src/vscp/common/userlist.cpp
+    ${VSCP_PATH}/src/vscp/common/clientlist.h
+    ${VSCP_PATH}/src/vscp/common/clientlist.cpp   
     ${VSCP_PATH}/src/common/third_party/mustache.hpp
     ${VSCP_PATH}/src/common/third_party/spdlog-1.8.5/include    
     ${VSCP_PATH}/src/vscp/common/vscp.h
