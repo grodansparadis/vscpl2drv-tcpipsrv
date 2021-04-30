@@ -53,7 +53,7 @@ class tcpipClientObj;
 
 #define VSCP_TCP_MAX_CLIENTS 1024
 
-#define MSG_WELCOME       "Welcome to the VSCP tcp/ip server.\r\n"
+#define MSG_WELCOME       "Welcome to the VSCP tcp/ip server [l2drv].\r\n"
 #define MSG_OK            "+OK - Success.\r\n"
 #define MSG_GOODBY        "+OK - Connection closed by client.\r\n"
 #define MSG_GOODBY2       "+OK - Connection closed.\r\n"

@@ -23,7 +23,7 @@
 // SOFTWARE.
 //
 
-#define MAJOR_VERSION       1
+#define MAJOR_VERSION       15
 #define MINOR_VERSION       0
 #define RELEASE_VERSION     0
 #define BUILD_VERSION       0

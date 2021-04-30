@@ -24,7 +24,7 @@
         "port" : 1883,
         "user" : "vscp",
 	    "password": "secret",
-	    "clientid" : "mosq-vscp-daemon-000001",
+	    "clientid" : "mosq-vscp-daemon-000011",
 	    "format" : "json",
         "qos" : 1,
         "bcleansession" : false,

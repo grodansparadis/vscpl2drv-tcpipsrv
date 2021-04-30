@@ -42,7 +42,6 @@
 
 #ifdef WIN32
 #else
-#include <syslog.h>
 #include <unistd.h>
 #include <net/if.h>
 #include <libgen.h>
@@ -89,9 +88,6 @@ using json = nlohmann::json;
 
 using namespace kainjow::mustache;
 
-// Buffer for XML parser
-//#define XML_BUFF_SIZE 50000
-
 // Forward declaration
 void*
 tcpipListenThread(void* pData);
@@ -104,12 +100,6 @@ CTcpipSrv::CTcpipSrv()
 {
     m_bQuit = false;
 
-    // The default random encryption key
-    // m_vscp_key[32] = {
-    //     0x2d, 0xbb, 0x07, 0x9a, 0x38, 0x98, 0x5a, 0xf0, 0x0e, 0xbe, 0xef, 0xe2, 0x2f, 0x9f, 0xfa, 0x0e,
-    //     0x7f, 0x72, 0xdf, 0x06, 0xeb, 0xe4, 0x45, 0x63, 0xed, 0xf4, 0xa1, 0x07, 0x3c, 0xab, 0xc7, 0xd4
-    // };
-
     vscp_clearVSCPFilter(&m_rxfilter);  // Accept all events
     vscp_clearVSCPFilter(&m_txfilter);  // Send all events
 
@@ -119,8 +109,7 @@ CTcpipSrv::CTcpipSrv()
     pthread_mutex_init(&m_mutexSendQueue, NULL);
     pthread_mutex_init(&m_mutexReceiveQueue, NULL);
 
-    pthread_mutex_init(&m_mutex_UserList, NULL);
-    
+    pthread_mutex_init(&m_mutex_UserList, NULL);    
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -138,17 +127,11 @@ CTcpipSrv::~CTcpipSrv()
     pthread_mutex_destroy(&m_mutexReceiveQueue);
 
     pthread_mutex_destroy(&m_mutex_UserList);
-
-    // Close syslog channel
-#ifndef WIN32    
-    closelog();
-#endif    
 }
 
 
 //////////////////////////////////////////////////////////////////////
 // open
-//
 //
 
 bool
@@ -181,29 +164,31 @@ CTcpipSrv::open(std::string& path, const cguid& guid)
     }
 
     // Set up logger
-    auto rotating_file_sink = 
-        std::make_shared<spdlog::sinks::rotating_file_sink_mt>(m_path_to_log_file.c_str(), 
-                                                                m_max_log_size, 
-                                                                m_max_log_files);
+    if (m_path_to_log_file.length()) {
+        auto rotating_file_sink = 
+            std::make_shared<spdlog::sinks::rotating_file_sink_mt>(m_path_to_log_file.c_str(), 
+                                                                    m_max_log_size, 
+                                                                    m_max_log_files);
+        if (m_bEnableFileLog) {
+            rotating_file_sink->set_level(m_fileLogLevel);
+            rotating_file_sink->set_pattern(m_fileLogPattern);            
+        }
+        else {
+            // If disabled set to off
+            rotating_file_sink->set_level(spdlog::level::off);
+        } 
 
-    if (m_bEnableFileLog) {
-        rotating_file_sink->set_level(m_fileLogLevel);
-        rotating_file_sink->set_pattern(m_fileLogPattern);            
+        std::vector<spdlog::sink_ptr> sinks {rotating_file_sink};
+        auto logger = std::make_shared<spdlog::async_logger>("logger", 
+                                                                sinks.begin(), 
+                                                                sinks.end(), 
+                                                                spdlog::thread_pool(), 
+                                                                spdlog::async_overflow_policy::block);
+        // The separate sub loggers will handle trace levels
+        logger->set_level(spdlog::level::trace);                                                            
+        spdlog::register_logger(logger);
+        spdlog::set_default_logger(logger);
     }
-    else {
-        // If disabled set to off
-        rotating_file_sink->set_level(spdlog::level::off);
-    } 
-
-    std::vector<spdlog::sink_ptr> sinks {rotating_file_sink};
-    auto logger = std::make_shared<spdlog::async_logger>("logger", 
-                                                            sinks.begin(), 
-                                                            sinks.end(), 
-                                                            spdlog::thread_pool(), 
-                                                            spdlog::async_overflow_policy::block);
-    // The separate sub loggers will handle trace levels
-    logger->set_level(spdlog::level::trace);                                                            
-    spdlog::register_logger(logger);
 
     if (!startTcpipSrvThread()) {  
         console->error("[vscpl2drv-tcpipsrv] Failed to start server.");
@@ -251,7 +236,7 @@ CTcpipSrv::doLoadConfig(std::string& path)
         in >> m_j_config;
     }
     catch (json::parse_error) {
-        spdlog::critical("[vscpl2drv-tcpipsrv] Failed to parse JSON configuration.");     
+        spdlog::critical("[vscpl2drv-tcpipsrv] Failed to load/parse JSON configuration.");     
         return false;
     }
 
@@ -418,6 +403,10 @@ CTcpipSrv::doLoadConfig(std::string& path)
     if (m_j_config.contains("path-users")) {
         try {
             m_pathUsers = m_j_config["path-users"].get<std::string>();
+            if (!m_userList.loadUsersFromFile(m_pathUsers)) {
+                spdlog::critical("[vscpl2drv-tcpipsrv] ReadConfig: Failed to load users from file 'user-path'='{}'. Terminating!", path); 
+                return false;
+            }
         }
         catch (const std::exception& ex) {
             spdlog::error("[vscpl2drv-tcpipsrv] ReadConfig: Failed to read 'path-users' Error='{}'", ex.what());    
@@ -431,7 +420,7 @@ CTcpipSrv::doLoadConfig(std::string& path)
     }
 
     // Response timeout m_responseTimeout
-    if (m_j_config.contains("path-users")) {
+    if (m_j_config.contains("response-timeout")) {
         try {
             m_responseTimeout = m_j_config["response-timeout"].get<uint32_t>();
         }
@@ -670,7 +659,7 @@ CTcpipSrv::doLoadConfig(std::string& path)
         } 
 
         // Short trust
-        if (j.contains("file-log-pattern")) {
+        if (j.contains("short-trust")) {
             try {
                 m_tls_short_trust = j["short-trust"].get<bool>();
             }
@@ -686,130 +675,45 @@ CTcpipSrv::doLoadConfig(std::string& path)
         } 
     }
 
+    // vscpEvent ev;
+    // ev.vscp_class = VSCP_CLASS2_HLO;
+    // ev.vscp_type = VSCP2_TYPE_HLO_COMMAND;
 
+    // std::string jj = "{\"op\" : 1, \"name\": \"\"}";
+    // json j;
+    // j["op"] = "noop";
+    // j["arg"]["currency"] = "USD";
+    // j["arg"]["value"] = 42.99;
+    // j["arr"] = json::array();
+    // j["arr"][0]["ettan"] = 1;
+    // j["arr"][0]["tvan"] = 2;
+    // j["arr"][1]["ettan"] = 1;
+    // j["arr"][1]["tvan"] = 2;
+    // j["arr"][2]["ettan"] = 1;
+    // j["arr"][2]["tvan"] = 2;
+    // printf("%s\n",j.dump().c_str());
 
-    // Add users
-    if (!m_j_config["users"].is_array()) {      
-        spdlog::debug("[vscpl2drv-tcpipsrv] Failed to parse JSON configuration.");     
-        return false;
-    }
+    // json aa;
+    // aa["ettan"] = 55;
+    // aa["tva"] = 66;
+    // j["arr"][1] = aa;
+    // j["arr"][3] = aa;
+    // printf("%s\n",j.dump().c_str());
+    // j["arr"].erase(1);
 
-    for (json::iterator it = m_j_config["users"].begin(); it != m_j_config["users"].end(); ++it) {
-        std::cout << (*it).dump() << '\n';
+    // printf("%s\n",j.dump().c_str());
 
-        vscpEventFilter receive_filter;
-        memset(&receive_filter, 0, sizeof(vscpEventFilter));
-        if ((*it).contains("filter")) {
-            vscp_readFilterFromString(&receive_filter, (*it).value("filter", ""));
-        }
-        if ((*it).contains("mask")) {
-            vscp_readMaskFromString(&receive_filter, (*it).value("mask", ""));
-        }
+    // ev.pdata = new uint8_t[200];
 
-        // Rights
-        std::string rights;
-        if ((*it)["rights"].is_array()) {
-            for (json::iterator it_rights = (*it)["rights"].begin(); it_rights != (*it)["rights"].end(); ++it_rights) {
-                std::cout << (*it_rights).dump() << '\n';
-                if (rights.length()) rights += ",";
-                rights += (*it_rights).get<std::string>();
-            }
-        }
-        else if ((*it)["rights"].is_string()) {
-            rights = (*it).value("rights", "user");
-        }
-        else {
-            spdlog::debug("[vscpl2drv-tcpipsrv] rights tag is missing for user (set to 'user').");
-            rights = "user";
-        }
+    // memset(ev.pdata, 0, sizeof(ev.pdata));
+    // for ( int i=0; i<16; i++) {
+    //     ev.pdata[i] = 11 * i;
+    // }
+    // ev.pdata[16] = 0x20;  // JSON, no encryption
+    // memcpy(ev.pdata+17, j.dump().c_str(), j.dump().length());
+    // ev.sizeData = 16 + 1 + (uint16_t)j.dump().length();
 
-        // ACL remotes
-        std::string remotes;
-        if ((*it)["remotes"].is_array()) {
-            for (json::iterator it_remotes = (*it)["remotes"].begin(); it_remotes != (*it)["remotes"].end(); ++it_remotes) {
-                std::cout << (*it_remotes).dump() << '\n';
-                if (remotes.length()) remotes += ",";
-                remotes += (*it_remotes).get<std::string>();
-            }
-        }
-        else if ((*it)["remotes"].is_string()) {
-            remotes = (*it).value("remotes", "");
-        }
-        else {
-            spdlog::debug("[vscpl2drv-tcpipsrv] remotes tag is missing for user. All client hosts can connect.");
-        }
-
-        // Allowed events
-        std::string events;
-        if ((*it)["allow-events"].is_array()) {
-            for (json::iterator it_events = (*it)["allow-events"].begin(); it_events != (*it)["allow-events"].end(); ++it_events) {
-                std::cout << (*it_events).dump() << '\n';
-                if (events.length()) events += ",";
-                events += (*it_events).get<std::string>();
-            }
-        }
-        else if ((*it)["allow-events"].is_string()) {
-            events = (*it).value("allow-events", "");
-        }
-        else {
-            spdlog::debug("[vscpl2drv-tcpipsrv] allow-events tag is missing for user. All events can be sent.");
-        }
-
-        if (!m_userList.addUser((*it).value("name", ""),
-                                    (*it).value("password", ""),
-                                    (*it).value("full-name", ""),
-                                    (*it).value("note", ""),
-                                    &receive_filter,
-                                    rights,
-                                    remotes,
-                                    events)) {
-                                       
-            spdlog::debug("[vscpl2drv-tcpipsrv] Failed to add client {}.",(*it).dump());       
-        }
-    }
-
-    vscpEvent ev;
-    ev.vscp_class = VSCP_CLASS2_HLO;
-    ev.vscp_type = VSCP2_TYPE_HLO_COMMAND;
-
-    std::string jj = "{\"op\" : 1, \"name\": \"\"}";
-    json j;
-    j["op"] = "noop";
-    j["arg"]["currency"] = "USD";
-    j["arg"]["value"] = 42.99;
-    j["arr"] = json::array();
-    j["arr"][0]["ettan"] = 1;
-    j["arr"][0]["tvan"] = 2;
-    j["arr"][1]["ettan"] = 1;
-    j["arr"][1]["tvan"] = 2;
-    j["arr"][2]["ettan"] = 1;
-    j["arr"][2]["tvan"] = 2;
-    printf("%s\n",j.dump().c_str());
-
-
-    json aa;
-    aa["ettan"] = 55;
-    aa["tva"] = 66;
-    j["arr"][1] = aa;
-    j["arr"][3] = aa;
-    printf("%s\n",j.dump().c_str());
-    j["arr"].erase(1);
-
-
-    printf("%s\n",j.dump().c_str());
-
-
-    ev.pdata = new uint8_t[200];
-
-    memset(ev.pdata, 0, sizeof(ev.pdata));
-    for ( int i=0; i<16; i++) {
-        ev.pdata[i] = 11 * i;
-    }
-    ev.pdata[16] = 0x20;  // JSON, no encryption
-    memcpy(ev.pdata+17, j.dump().c_str(), j.dump().length());
-    ev.sizeData = 16 + 1 + (uint16_t)j.dump().length();
-
-    handleHLO(&ev);
+    // handleHLO(&ev);
 
     return true;
 }
@@ -837,11 +741,8 @@ CTcpipSrv::handleHLO(vscpEvent* pEvent)
     vscpEventEx ex;
 
     // Check pointers
-    if (NULL == pEvent || (NULL == pEvent->pdata)) {
-#ifndef WIN32        
-        syslog(LOG_ERR,
-               "[vscpl2drv-tcpipsrv] HLO handler: NULL event pointer.");
-#endif               
+    if (NULL == pEvent || (NULL == pEvent->pdata)) {      
+        spdlog::get("logger")->error("[vscpl2drv-tcpipsrv] HLO handler: NULL event pointer.");             
         return false;
     }
 
@@ -851,9 +752,7 @@ CTcpipSrv::handleHLO(vscpEvent* pEvent)
 
     //CHLO hlo;
     //if (!hlo.parseHLO(j, pEvent )) {
-#ifndef WIN32        
-    //     syslog(LOG_ERR, "[vscpl2drv-tcpipsrv] Failed to parse HLO.");
-#endif    
+    spdlog::get("logger")->error("[vscpl2drv-tcpipsrv] Failed to parse HLO.");
     //     return false;
     // }
 
@@ -882,10 +781,8 @@ CTcpipSrv::handleHLO(vscpEvent* pEvent)
 
     // Must be an operation
     if (!j["op"].is_string() || 
-             j["op"].is_null()) {
-#ifndef WIN32                 
-        syslog(LOG_ERR,"[vscpl2drv-tcpipsrv] HLO-command: Missing op [%s]",j.dump().c_str());         
-#endif
+             j["op"].is_null()) {                 
+        spdlog::get("logger")->error("[vscpl2drv-tcpipsrv] HLO-command: Missing op [%s]",j.dump().c_str());         
         return false;
     }
 
@@ -973,71 +870,84 @@ CTcpipSrv::readVariable(vscpEventEx& ex, const json& json_req)
     if ("enable-debug" == j.value("name","")) {
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_BOOLEAN;
         j["arg"]["value"] = m_j_config.value("enable-debug", false);
-    } else if ("enable-write" == j.value("name","")) {
+    } 
+    else if ("enable-write" == j.value("name","")) {
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_BOOLEAN;
         j["arg"]["value"] = m_j_config.value("enable-write", false);
-    } else if ("interface" == j.value("name","")) {
+    } 
+    else if ("interface" == j.value("name","")) {
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
         j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("interface", ""));
-    } else if ("vscp-key-file" == j.value("name","")) {
+    } 
+    else if ("vscp-key-file" == j.value("name","")) {
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
         j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("vscp-key-file", ""));
-    } else if ("max-out-queue" == j.value("name","")) {
+    } 
+    else if ("max-out-queue" == j.value("name","")) {
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_INTEGER;
         j["arg"]["value"] = m_j_config.value("max-out-queue", 0);
-    } else if ("max-in-queue" == j.value("name","")) {
+    } 
+    else if ("max-in-queue" == j.value("name","")) {
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_INTEGER;
         j["arg"]["value"] = m_j_config.value("max-in-queue", 0);
-    } else if ("encryption" == j.value("name","")) {
+    } 
+    else if ("encryption" == j.value("name","")) {
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
         j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("encryption", ""));
-    } else if ("ssl-certificate" == j.value("name","")) {
+    } 
+    else if ("ssl-certificate" == j.value("name","")) {
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
         j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-certificate", ""));
-    } else if ("ssl-certificate-chain" == j.value("name","")) {
+    } 
+    else if ("ssl-certificate-chain" == j.value("name","")) {
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
         j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-certificate-chain", ""));
-    } else if ("ssl-ca-path" == j.value("name","")) {
+    } 
+    else if ("ssl-ca-path" == j.value("name","")) {
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
         j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-ca-path", ""));
-    } else if ("ssl-ca-file" == j.value("name","")) {
+    } 
+    else if ("ssl-ca-file" == j.value("name","")) {
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
         j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-ca-file", ""));
-    } else if ("ssl-verify-depth" == j.value("name","")) {
+    } 
+    else if ("ssl-verify-depth" == j.value("name","")) {
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_INTEGER;
         j["arg"]["value"] = m_j_config.value("ssl-verify-depth", 9);
-    } else if ("ssl-default-verify-paths" == j.value("name","")) {
+    } 
+    else if ("ssl-default-verify-paths" == j.value("name","")) {
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
         j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-default-verify-paths", ""));
-    } else if ("ssl-cipher-list" == j.value("name","")) {
+    } 
+    else if ("ssl-cipher-list" == j.value("name","")) {
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
         j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-cipher-list", ""));
-    } else if ("ssl-protocol-version" == j.value("name","")) {
+    } 
+    else if ("ssl-protocol-version" == j.value("name","")) {
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_INTEGER;
         j["arg"]["value"] = m_j_config.value("ssl-protocol-version", 3);
-    } else if ("ssl-short-trust" == j.value("name","")) {
+    } 
+    else if ("ssl-short-trust" == j.value("name","")) {
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_BOOLEAN;
         j["arg"]["value"] = m_j_config.value("ssl-short-trust", false);
-    } else if ("user-count" == j.value("name","")) {
+    } 
+    else if ("user-count" == j.value("name","")) {
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_INTEGER;
         j["arg"]["value"] = 9;
-    } else if ("users" == j.value("name","")) {
+    } 
+    else if ("users" == j.value("name","")) {
         
-        if (!m_j_config["users"].is_array()) {
-#ifndef WIN32            
-            syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] 'users' must be of type array.");
-#endif            
+        if (!m_j_config["users"].is_array()) {        
+            spdlog::get("logger")->warn("[vscpl2drv-tcpipsrv] 'users' must be of type array.");        
             j["result"] = VSCP_ERROR_SUCCESS;
             goto abort;
         }
         
         int index = j.value("index",0);  // get index
         if (index >= m_j_config["users"].size()) {
-            // Index to large
-#ifndef WIN32            
-            syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] index of array is to large [%u].", 
-                index >= m_j_config["users"].size());
-#endif                
+            // Index to large           
+            spdlog::get("logger")->warn("[vscpl2drv-tcpipsrv] index of array is to large [%u].", 
+                                            index >= m_j_config["users"].size());    
             j["result"] = VSCP_ERROR_INDEX_OOB;
             goto abort;
         }
@@ -1045,11 +955,10 @@ CTcpipSrv::readVariable(vscpEventEx& ex, const json& json_req)
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_JSON;
         j["arg"]["value"] = m_j_config["users"][index].dump();
 
-    } else {
-        j["result"] = VSCP_ERROR_MISSING;
-#ifndef WIN32        
-        syslog(LOG_ERR,"Variable [] is unknown.");
-#endif        
+    } 
+    else {
+        j["result"] = VSCP_ERROR_MISSING;    
+        spdlog::get("logger")->error("Variable [] is unknown.");
     }
 
  abort:
@@ -1090,7 +999,8 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_BOOLEAN;
         j["arg"]["value"] = m_j_config.value("enable-debug", false);
 
-    } else if ("enable-write" == j.value("name","")) {
+    } 
+    else if ("enable-write" == j.value("name","")) {
         
         // arg should be boolean
         if (!j["arg"].is_boolean() || 
@@ -1105,7 +1015,8 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_BOOLEAN;
         j["arg"]["value"] = m_j_config.value("enable-write", false);
 
-    } else if ("interface" == j.value("name","")) {
+    } 
+    else if ("interface" == j.value("name","")) {
         
         // arg should be string
         if (!j["arg"].is_string() || 
@@ -1120,7 +1031,8 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
         j["arg"]["value"] = vscp_convertToBase64(m_j_config["interface"]);
 
-    } else if ("vscp-key-file" == j.value("name","")) {
+    } 
+    else if ("vscp-key-file" == j.value("name","")) {
 
         // arg should be string
         if (!j["arg"].is_string() || 
@@ -1135,7 +1047,8 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
         j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("vscp-key-file", ""));
 
-    } else if ("max-out-queue" == j.value("name","")) {
+    } 
+    else if ("max-out-queue" == j.value("name","")) {
 
         // arg should be number
         if (!j["arg"].is_number() || 
@@ -1150,7 +1063,8 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_INTEGER;
         j["arg"]["value"] = m_j_config.value("max-out-queue", 0);
 
-    } else if ("max-in-queue" == j.value("name","")) {
+    } 
+    else if ("max-in-queue" == j.value("name","")) {
 
         // arg should be number
         if (!j["arg"].is_number() || 
@@ -1165,7 +1079,8 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_INTEGER;
         j["arg"]["value"] = m_j_config.value("max-in-queue", 0);
 
-    } else if ("encryption" == j.value("name","")) {
+    } 
+    else if ("encryption" == j.value("name","")) {
 
         // arg should be string
         if (!j["arg"].is_string() || 
@@ -1180,7 +1095,8 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
         j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("encryption", ""));
 
-    } else if ("ssl-certificate" == j.value("name","")) {
+    } 
+    else if ("ssl-certificate" == j.value("name","")) {
 
         // arg should be string
         if (!j["arg"].is_string() || 
@@ -1195,7 +1111,8 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
         j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-certificate", ""));
 
-    } else if ("ssl-certificate-chain" == j.value("name","")) {
+    } 
+    else if ("ssl-certificate-chain" == j.value("name","")) {
 
         // arg should be string
         if (!j["arg"].is_string() || 
@@ -1210,7 +1127,8 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
         j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-certificate-chain", ""));
 
-    } else if ("ssl-ca-path" == j.value("name","")) {
+    } 
+    else if ("ssl-ca-path" == j.value("name","")) {
 
         // arg should be string
         if (!j["arg"].is_string() || 
@@ -1225,7 +1143,8 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
         j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-ca-path", ""));
 
-    } else if ("ssl-ca-file" == j.value("name","")) {
+    } 
+    else if ("ssl-ca-file" == j.value("name","")) {
 
         // arg should be string
         if (!j["arg"].is_string() || 
@@ -1240,10 +1159,12 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
         j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-ca-file", ""));
 
-    } else if ("ssl-verify-depth" == j.value("name","")) {
+    } 
+    else if ("ssl-verify-depth" == j.value("name","")) {
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_INTEGER;
         j["arg"]["value"] = m_j_config.value("ssl-verify-depth", 9);
-    } else if ("ssl-default-verify-paths" == j.value("name","")) {
+    } 
+    else if ("ssl-default-verify-paths" == j.value("name","")) {
         
         // arg should be string
         if (!j["arg"].is_string() || 
@@ -1258,7 +1179,8 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
         j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-default-verify-paths", ""));
 
-    } else if ("ssl-cipher-list" == j.value("name","")) {
+    } 
+    else if ("ssl-cipher-list" == j.value("name","")) {
 
         // arg should be string
         if (!j["arg"].is_string() || 
@@ -1273,7 +1195,8 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
         j["arg"]["value"] = vscp_convertToBase64(m_j_config.value("ssl-cipher-list", ""));
 
-    } else if ("ssl-protocol-version" == j.value("name","")) {
+    } 
+    else if ("ssl-protocol-version" == j.value("name","")) {
         
         // arg should be number
         if (!j["arg"].is_number() || 
@@ -1288,7 +1211,8 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_INTEGER;
         j["arg"]["value"] = m_j_config.value("ssl-protocol-version", 3);
 
-    } else if ("ssl-short-trust" == j.value("name","")) {
+    } 
+    else if ("ssl-short-trust" == j.value("name","")) {
 
         // arg should be boolean
         if (!j["arg"].is_boolean() || 
@@ -1303,34 +1227,29 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_BOOLEAN;
         j["arg"]["value"] = m_j_config.value("ssl-short-trust", false);
 
-    } else if ("users" == j.value("name","")) {
+    } 
+    else if ("users" == j.value("name","")) {
         
         // users must be array
         if (!m_j_config["users"].is_array()) {
-#ifndef WIN32            
-            syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] 'users' must be of type array.");
-#endif            
+            spdlog::get("logger")->warn("[vscpl2drv-tcpipsrv] 'users' must be of type array."); 
             j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;
         }
 
         // Must be object
-        if (!m_j_config["args"].is_object()) {
-#ifndef WIN32            
-            syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] The user info must be an object.");
-#endif            
+        if (!m_j_config["args"].is_object()) {           
+            spdlog::get("logger")->warn("[vscpl2drv-tcpipsrv] The user info must be an object."); 
             j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;
         }
 
         int index = j.value("index",0);  // get index
         if (index >= m_j_config["users"].size()) {
-            // Index to large
-#ifndef WIN32            
-            syslog(LOG_WARNING, 
+            // Index to large          
+            spdlog::get("logger")->warn( 
                         "[vscpl2drv-tcpipsrv] index of array is to large [%u].",
-                        index >= m_j_config["users"].size());
-#endif                        
+                        index >= m_j_config["users"].size());                       
             j["result"] = VSCP_ERROR_INDEX_OOB;
             goto abort;
         }
@@ -1340,11 +1259,10 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_JSON;
         j["arg"]["value"] = m_j_config["users"][index].dump();
 
-    } else {
-        j["result"] = VSCP_ERROR_MISSING;
-#ifndef WIN32        
-        syslog(LOG_ERR,"Variable [] is unknown.");
-#endif        
+    } 
+    else {
+        j["result"] = VSCP_ERROR_MISSING;     
+        spdlog::get("logger")->error("Variable [] is unknown.");       
     }
 
  abort:
@@ -1372,42 +1290,34 @@ CTcpipSrv::deleteVariable(vscpEventEx& ex, const json& json_reg)
     if ("users" == j.value("name","")) {
         
         // users must be array
-        if (!m_j_config["users"].is_array()) {
-#ifndef WIN32            
-            syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] 'users' must be of type array.");
-#endif            
+        if (!m_j_config["users"].is_array()) {         
+            spdlog::get("logger")->warn("[vscpl2drv-tcpipsrv] 'users' must be of type array.");
             j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;
         }
 
         // Must be object
-        if (!m_j_config["args"].is_object()) {
-#ifndef WIN32            
-            syslog(LOG_WARNING,"[vscpl2drv-tcpipsrv] The user info must be an object.");
-#endif            
+        if (!m_j_config["args"].is_object()) {    
+            spdlog::get("logger")->warn("[vscpl2drv-tcpipsrv] The user info must be an object.");     
             j["result"] = VSCP_ERROR_INVALID_TYPE;
             goto abort;
         }
 
         int index = j.value("index",0);  // get index
         if (index >= m_j_config["users"].size()) {
-            // Index to large
-#ifndef WIN32            
-            syslog(LOG_WARNING, 
-                        "[vscpl2drv-tcpipsrv] index of array is to large [%u].",
-                        index >= m_j_config["users"].size());
-#endif                        
+            // Index to large           
+            spdlog::get("logger")->warn("[vscpl2drv-tcpipsrv] index of array is to large [%u].",
+                        index >= m_j_config["users"].size());                     
             j["result"] = VSCP_ERROR_INDEX_OOB;
             goto abort;
         }
 
         m_j_config["users"].erase(index);
 
-    } else {
+    } 
+    else {
         j["result"] = VSCP_ERROR_MISSING;
-#ifndef WIN32        
-        syslog(LOG_WARNING, "[vscpl2drv-tcpipsrv] Variable [%s] is unknown.", j.value("name", "").c_str());
-#endif        
+        spdlog::get("logger")->warn("[vscpl2drv-tcpipsrv] Variable [%s] is unknown.", j.value("name", "").c_str());       
     }
 
 abort:
@@ -1446,16 +1356,12 @@ CTcpipSrv::start(void)
 bool
 CTcpipSrv::restart(void)
 {
-    if (!stop()) {
-#ifndef WIN32        
-        syslog(LOG_WARNING, "[vscpl2drv-tcpipsrv] Failed to stop VSCP tcp/ip server.");
-#endif        
+    if (!stop()) {    
+        spdlog::get("logger")->warn("[vscpl2drv-tcpipsrv] Failed to stop VSCP tcp/ip server.");     
     }
 
-    if (!start()) {
-#ifndef WIN32        
-        syslog(LOG_WARNING, "[vscpl2drv-tcpipsrv] Failed to start VSCP tcp/ip server.");
-#endif        
+    if (!start()) {     
+        spdlog::get("logger")->warn("[vscpl2drv-tcpipsrv] Failed to start VSCP tcp/ip server.");    
     }
 
     return true;
@@ -1469,11 +1375,8 @@ bool
 CTcpipSrv::eventExToReceiveQueue(vscpEventEx& ex)
 {
     vscpEvent* pev = new vscpEvent();
-    if (!vscp_convertEventExToEvent(pev, &ex)) {
-#ifndef WIN32        
-        syslog(LOG_ERR,
-               "[vscpl2drv-tcpipsrv] Failed to convert event from ex to ev.");
-#endif               
+    if (!vscp_convertEventExToEvent(pev, &ex)) {        
+        spdlog::get("logger")->error("[vscpl2drv-tcpipsrv] Failed to convert event from ex to ev.");               
         vscp_deleteEvent(pev);
         return false;
     }
@@ -1484,14 +1387,14 @@ CTcpipSrv::eventExToReceiveQueue(vscpEventEx& ex)
             m_receiveList.push_back(pev);            
             pthread_mutex_unlock(&m_mutexReceiveQueue);
             sem_post(&m_semReceiveQueue);
-        } else {
+        } 
+        else {
             vscp_deleteEvent(pev);
         }
-    } else {
-#ifndef WIN32        
-        syslog(LOG_ERR,
-               "[vscpl2drv-tcpipsrv] Unable to allocate event storage.");
-#endif               
+    } 
+    else {      
+        spdlog::get("logger")->error(
+               "[vscpl2drv-tcpipsrv] Unable to allocate event storage.");               
     }
     return true;
 }
@@ -1535,25 +1438,19 @@ bool
 CTcpipSrv::sendEventToClient(CClientItem* pClientItem, const vscpEvent* pEvent)
 {
     // Must be valid pointers
-    if (NULL == pClientItem) {
-#ifndef WIN32        
-        syslog(LOG_ERR, "sendEventToClient - Pointer to clientitem is null");
-#endif        
+    if (NULL == pClientItem) {       
+        spdlog::get("logger")->error("sendEventToClient - Pointer to clientitem is null");     
         return false;
     }
-    if (NULL == pEvent) {
-#ifndef WIN32        
-        syslog(LOG_ERR, "sendEventToClient - Pointer to event is null");
-#endif        
+    if (NULL == pEvent) {        
+        spdlog::get("logger")->error("sendEventToClient - Pointer to event is null");   
         return false;
     }
 
     // Check if filtered out - if so do nothing here
     if (!vscp_doLevel2Filter(pEvent, &pClientItem->m_filter)) {
-        if (m_j_config["enable-debug"].get<bool>()) {
-#ifndef WIN32            
-            syslog(LOG_DEBUG, "sendEventToClient - Filtered out");
-#endif            
+        if (m_j_config["enable-debug"].get<bool>()) {           
+            spdlog::get("logger")->debug("sendEventToClient - Filtered out");          
         }
         return false;
     }
@@ -1561,10 +1458,8 @@ CTcpipSrv::sendEventToClient(CClientItem* pClientItem, const vscpEvent* pEvent)
     // If the client queue is full for this client then the
     // client will not receive the message
     if (pClientItem->m_clientInputQueue.size() > m_j_config.value("max-out-queue", MAX_ITEMS_IN_QUEUE)) {
-        if (m_j_config["enable-debug"].get<bool>()) {
-#ifndef WIN32            
-            syslog(LOG_DEBUG, "sendEventToClient - overrun");
-#endif            
+        if (m_j_config["enable-debug"].get<bool>()) {          
+            spdlog::get("logger")->debug("sendEventToClient - overrun");       
         }
         // Overrun
         pClientItem->m_statistics.cntOverruns++;
@@ -1601,10 +1496,8 @@ CTcpipSrv::sendEventAllClients(const vscpEvent* pEvent)
     CClientItem* pClientItem;
     std::deque<CClientItem*>::iterator it;
 
-    if (NULL == pEvent) {
-#ifndef WIN32        
-        syslog(LOG_ERR, "sendEventAllClients - No event to send");
-#endif        
+    if (NULL == pEvent) {        
+        spdlog::get("logger")->error("sendEventAllClients - No event to send");      
         return false;
     }
 
@@ -1616,16 +1509,11 @@ CTcpipSrv::sendEventAllClients(const vscpEvent* pEvent)
 
         if (NULL != pClientItem) {
             if (m_j_config["enable-debug"].get<bool>()) {
-#ifndef WIN32                
-                syslog(LOG_DEBUG,
-                       "Send event to client [%s]",
-                       pClientItem->m_strDeviceName.c_str());
-#endif                       
+                spdlog::get("logger")->debug("Send event to client [%s]",
+                                                pClientItem->m_strDeviceName.c_str());
             }
-            if (!sendEventToClient(pClientItem, pEvent)) {
-#ifndef WIN32                
-                syslog(LOG_ERR, "sendEventAllClients - Failed to send event");
-#endif                
+            if (!sendEventToClient(pClientItem, pEvent)) {               
+                spdlog::get("logger")->error("sendEventAllClients - Failed to send event");
             }
         }
     }
@@ -1643,18 +1531,14 @@ bool
 CTcpipSrv::startTcpipSrvThread(void)
 {
     if (__VSCP_DEBUG_TCP) {
-#ifndef WIN32        
-        syslog(LOG_DEBUG, "Controlobject: Starting TCP/IP interface...");
-#endif        
+        spdlog::get("logger")->debug("Controlobject: Starting TCP/IP interface...");    
     }
 
     // Create the tcp/ip server data object
     m_ptcpipSrvObject = (tcpipListenThreadObj*)new tcpipListenThreadObj(this);
-    if (NULL == m_ptcpipSrvObject) {
-#ifndef WIN32        
-        syslog(LOG_ERR,
-               "Controlobject: Failed to allocate storage for tcp/ip.");
-#endif               
+    if (NULL == m_ptcpipSrvObject) {      
+        spdlog::get("logger")->error(
+               "Controlobject: Failed to allocate storage for tcp/ip.");            
     }
 
     // Set the port to listen for connections on
@@ -1665,11 +1549,8 @@ CTcpipSrv::startTcpipSrvThread(void)
                        tcpipListenThread,
                        m_ptcpipSrvObject)) {
         delete m_ptcpipSrvObject;
-        m_ptcpipSrvObject = NULL;
-#ifndef WIN32        
-        syslog(LOG_ERR,
-               "Controlobject: Unable to start the tcp/ip listen thread.");
-#endif               
+        m_ptcpipSrvObject = NULL;    
+        spdlog::get("logger")->error("Controlobject: Unable to start the tcp/ip listen thread.");          
         return false;
     }
 
@@ -1687,19 +1568,15 @@ CTcpipSrv::stopTcpipSrvThread(void)
     m_ptcpipSrvObject->m_nStopTcpIpSrv = VSCP_TCPIP_SRV_STOP;
 
     if (__VSCP_DEBUG_TCP) {
-#ifndef WIN32        
-        syslog(LOG_DEBUG, "Controlobject: Terminating TCP thread.");
-#endif        
+        spdlog::get("logger")->debug("Controlobject: Terminating TCP thread.");
     }
 
     pthread_join(m_tcpipListenThread, NULL);
     delete m_ptcpipSrvObject;
     m_ptcpipSrvObject = NULL;
 
-    if (__VSCP_DEBUG_TCP) {
-#ifndef WIN32        
-        syslog(LOG_DEBUG, "Controlobject: Terminated TCP thread.");
-#endif        
+    if (__VSCP_DEBUG_TCP) {   
+        spdlog::get("logger")->debug("Controlobject: Terminated TCP thread.");
     }
 
     return true;
@@ -1816,12 +1693,10 @@ CTcpipSrv::readEncryptionKey(const std::string& path)
         strStream << in.rdbuf();
         //m_vscpkey = strStream.str();
     }
-    catch (...) {
-#ifndef WIN32        
-        syslog(LOG_ERR,
+    catch (...) {  
+        spdlog::get("logger")->error(
                 "[vscpl2drv-tcpipsrv] Failed to read encryption key file [%s]",
-                m_path.c_str());
-#endif                
+                m_path.c_str());             
         return false;
     }
 
