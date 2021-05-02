@@ -6,7 +6,7 @@
     "max-in-queue" : 32000,
     "interface" : "9598",
     "encryption" : "aes256",
-    "path-users" : "/etc/vscp/users.json",
+    "path-users" : "/home/akhe/development/VSCP/vscpl2drv-tcpipsrv/debug/users.json",
     "tls" : {
         "certificate" : "",
         "certificate-chain" : "",

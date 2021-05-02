@@ -2,7 +2,7 @@
 #
 # Build instructions for VSCP Works.
 #
-# Copyright (c) 2000-2021 Åke Hedman, Grodans Paradis AB
+# Copyright (c) 2000-2021 Åke Hedman, the VSCP Project
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -28,7 +28,7 @@
 
 cmake_minimum_required(VERSION 3.5)
 project(vscpl2drv-tcpipsrv LANGUAGES CXX C)
-set(PACKAGE_AUTHOR "Ake Hedman, Grodans Paradis AB")
+set(PACKAGE_AUTHOR "Ake Hedman, the VSCP Project")
 
 # Load packaging facilities.
 INCLUDE(CPack)
@@ -46,8 +46,8 @@ endif()
 
 SET(CPACK_PACKAGE_DESCRIPTION "VSCP driver for tcp/ip server")
 SET(CPACK_PACKAGE_DESCRIPTION_SUMMARY "VSCP level II Driver for VSCP that export a server interface for the VSCP tcp/ip link protocol")
-SET(CPACK_PACKAGE_VENDOR "Grodans Paradis AB")
-SET(CPACK_PACKAGE_CONTACT "akhe@grodansparadis.com")
+SET(CPACK_PACKAGE_VENDOR "the VSCP Project")
+SET(CPACK_PACKAGE_CONTACT "akhe@vscp.org")
 
 if(NOT DEFINED APP_LOW_NAME)
 set(APP_LOW_NAME "vscpl2drv-tcpipsrv")

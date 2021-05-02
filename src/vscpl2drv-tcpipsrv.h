@@ -9,7 +9,7 @@
 // This file is part of the VSCP (http://www.vscp.org) 
 //
 // Copyright (C) 2000-2020 Ake Hedman, 
-// Ake Hedman, Grodans Paradis AB, <akhe@grodansparadis.com>
+// Ake Hedman, the VSCP Project, <akhe@vscp.org>
 // 
 // This file is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -62,7 +62,7 @@ typedef int BOOL;
 #endif
 
 // This is the vendor string - Change to your own value
-#define VSCP_DLL_VENDOR "Grodans Paradis AB, Sweden, https://www.grodansparadis.com"
+#define VSCP_DLL_VENDOR "the VSCP Project, Sweden, https://www.vscp.org"
 
 
 /*!

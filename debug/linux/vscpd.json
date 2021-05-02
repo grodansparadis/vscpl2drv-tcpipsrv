@@ -96,7 +96,7 @@
                 "path-config" : "/home/akhe/development/VSCP/vscpl2drv-tcpipsrv/debug/conf_standard.json",
                 "guid" : "FF:FF:FF:FF:FF:FF:FF:F5:02:00:00:00:00:00:00:01",
                 "mqtt" : {
-                    "host" : "127.0.0.1",
+                    "host" : "192.168.1.7",
                     "port" : 1883,
                     "user" : "vscp",
                     "password": "secret",
@@ -115,10 +115,10 @@
                     "keyfile" : "",
                     "pwkeyfile" : "",
                     "subscribe" : [
-                        "vscp/{{guid}}/#"
+                        "vscp/#"
                     ],
                     "publish" : [
-                        "vscp/{{guid}}/{{class}}/{{type}}/{{nodeid}}"
+                        "vsclp2drv-tcpipsrv"
                     ]
                 }
             }

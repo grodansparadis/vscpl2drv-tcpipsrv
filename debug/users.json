@@ -2,22 +2,21 @@
 	"users" : [
 		{
 			"name" : "admin",
-			"password" : "D35967DEE4CFFB214124DFEEA7778BB0;582BCA078604C925852CDDEE0A8475556DEAA6DC6EFB004A353094900C97D3DE",
+			"password" : "160F0939DB95D86F599F8C5DAC381A71;155968A8E53AEBF6438BEBA2F1BE04EC031F847E604103C0A22B0AC51CCAF068",
 			"fullname" : "Miss. Super user",
 			"rights" : "admin",
 			"remotes" : [
-				"+127.0.0.1",
-				"+192.168.0.0/16",
-                "+fe80::/64"
+				"+127.0.0.0/24",
+				"+192.168.0.0/16"                
 			],
 			"events" : "",
 			"filter" : "",
-			"mask" : "",						
+			"mask" : "",
 			"note" : "A normal user. username='admin' password='secret'"
 		},
 		{
 			"name" : "user",
-			"password" : "D35967DEE4CFFB214124DFEEA7778BB0;582BCA078604C925852CDDEE0A8475556DEAA6DC6EFB004A353094900C97D3DE",
+			"password" : "0839DD1BE692164847B601E6520CE23B;3E1B4D950F04EA3BFA2C43160B9D98ECC76B249F79A1062F041C526978591BA3",
 			"fullname" : "Mr. Sample user",
 			"rights" : "user",
 			"remotes" : "",
@@ -28,20 +27,23 @@
 		},
 		{
 			"name" : "special1",
-			"password" : "D35967DEE4CFFB214124DFEEA7778BB0;582BCA078604C925852CDDEE0A8475556DEAA6DC6EFB004A353094900C97D3DE",
+			"password" : "7B79EF5A2532F9B46DFEC501BAD16C35;100943D7C2C1C9AE99AE4F2287241DA7EAC3969EDDED50AFF3FB4EAD33C1BAD9",
 			"fullname" : "Mrs. Special user",
 			"rights" : [
 				"user",
 				""
 			],
-			"remotes" : "+127.0.0.1",
+			"remotes" : [
+				"+127.0.0.1",
+				"+fe80::/64"
+			],
 			"events" : [
 				"10:*",
 				"30:9"
 			],
 			"filter" : "",
 			"mask" : "",
-			"note" : "A normal user. username='user' password='secret'"
+			"note" : "A normal user. username='special1' password='secret'"
 		}
 	]
 }

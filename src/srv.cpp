@@ -4,8 +4,8 @@
 //
 // The MIT License (MIT)
 //
-// Copyright © 2000-2021 Ake Hedman, Grodans Paradis AB
-// <info@grodansparadis.com>
+// Copyright © 2000-2021 Ake Hedman, the VSCP Project
+// <akhe@vscp.org>
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -2265,8 +2265,7 @@ tcpipClientObj::handleClientPassword(void)
 
   // Check if this user is allowed to connect from this location
   pthread_mutex_lock(&m_pObj->m_mutex_UserList);
-  bool bValidHost = (1 == m_pClientItem->m_pUserItem->isAllowedToConnect(
-                            cli_addr.sin_addr.s_addr));
+  bool bValidHost = (1 == m_pClientItem->m_pUserItem->isAllowedToConnect(cli_addr.sin_addr.s_addr));
   pthread_mutex_unlock(&m_pObj->m_mutex_UserList);
 
   if (!bValidHost) {

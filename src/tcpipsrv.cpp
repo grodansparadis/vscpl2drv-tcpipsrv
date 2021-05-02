@@ -8,7 +8,7 @@
 // This file is part of the VSCP Project (http://www.vscp.org)
 //
 // Copyright (C) 2000-2021 Ake Hedman,
-// Grodans Paradis AB, <akhe@grodansparadis.com>
+// the VSCP Project, <akhe@vscp.org>
 //
 // This file is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -725,7 +725,7 @@ CTcpipSrv::doLoadConfig(std::string& path)
 bool
 CTcpipSrv::doSaveConfig(void)
 {
-    if (m_j_config.value("enable-write", false)) {
+    if (m_j_config.value("write", false)) {
 
     }
     return true;
@@ -867,13 +867,13 @@ CTcpipSrv::readVariable(vscpEventEx& ex, const json& json_req)
     j["result"] = VSCP_ERROR_SUCCESS;
     j["arg"]["name"] = j.value("name","");
 
-    if ("enable-debug" == j.value("name","")) {
+    if ("debug" == j.value("name","")) {
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_BOOLEAN;
-        j["arg"]["value"] = m_j_config.value("enable-debug", false);
+        j["arg"]["value"] = m_j_config.value("debug", false);
     } 
-    else if ("enable-write" == j.value("name","")) {
+    else if ("write" == j.value("name","")) {
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_BOOLEAN;
-        j["arg"]["value"] = m_j_config.value("enable-write", false);
+        j["arg"]["value"] = m_j_config.value("write", false);
     } 
     else if ("interface" == j.value("name","")) {
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_STRING;
@@ -983,7 +983,7 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
     j["result"] = VSCP_ERROR_SUCCESS;
     j["arg"]["name"] = j.value("name","");
 
-    if ("enable-debug" == j.value("name","")) {
+    if ("debug" == j.value("name","")) {
         
         // arg should be boolean
         if (!j["arg"].is_boolean() ||
@@ -993,14 +993,14 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
         }
         
         // set new value
-        m_j_config["enable-debug"] = j["arg"].get<bool>();
+        m_j_config["debug"] = j["arg"].get<bool>();
         
         // report back
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_BOOLEAN;
-        j["arg"]["value"] = m_j_config.value("enable-debug", false);
+        j["arg"]["value"] = m_j_config.value("debug", false);
 
     } 
-    else if ("enable-write" == j.value("name","")) {
+    else if ("write" == j.value("name","")) {
         
         // arg should be boolean
         if (!j["arg"].is_boolean() || 
@@ -1009,11 +1009,11 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
             goto abort;         
         }
         // set new value
-        m_j_config["enable-write"] = j["arg"].get<bool>();
+        m_j_config["write"] = j["arg"].get<bool>();
 
         // report back
         j["arg"]["type"] = VSCP_REMOTE_VARIABLE_CODE_BOOLEAN;
-        j["arg"]["value"] = m_j_config.value("enable-write", false);
+        j["arg"]["value"] = m_j_config.value("write", false);
 
     } 
     else if ("interface" == j.value("name","")) {
@@ -1449,7 +1449,7 @@ CTcpipSrv::sendEventToClient(CClientItem* pClientItem, const vscpEvent* pEvent)
 
     // Check if filtered out - if so do nothing here
     if (!vscp_doLevel2Filter(pEvent, &pClientItem->m_filter)) {
-        if (m_j_config["enable-debug"].get<bool>()) {           
+        if (m_j_config.contains("debug") && m_j_config["debug"].get<bool>()) {           
             spdlog::get("logger")->debug("sendEventToClient - Filtered out");          
         }
         return false;
@@ -1458,7 +1458,7 @@ CTcpipSrv::sendEventToClient(CClientItem* pClientItem, const vscpEvent* pEvent)
     // If the client queue is full for this client then the
     // client will not receive the message
     if (pClientItem->m_clientInputQueue.size() > m_j_config.value("max-out-queue", MAX_ITEMS_IN_QUEUE)) {
-        if (m_j_config["enable-debug"].get<bool>()) {          
+        if (m_j_config.contains("debug") && m_j_config["debug"].get<bool>()) {          
             spdlog::get("logger")->debug("sendEventToClient - overrun");       
         }
         // Overrun
@@ -1508,7 +1508,7 @@ CTcpipSrv::sendEventAllClients(const vscpEvent* pEvent)
         pClientItem = *it;
 
         if (NULL != pClientItem) {
-            if (m_j_config["enable-debug"].get<bool>()) {
+            if (m_j_config.contains("debug") && m_j_config["debug"].get<bool>()) {
                 spdlog::get("logger")->debug("Send event to client [%s]",
                                                 pClientItem->m_strDeviceName.c_str());
             }
