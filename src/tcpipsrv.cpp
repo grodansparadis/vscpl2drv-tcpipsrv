@@ -135,10 +135,14 @@ CTcpipSrv::~CTcpipSrv()
 //
 
 bool
-CTcpipSrv::open(std::string& path, const cguid& guid)
+CTcpipSrv::open(std::string& path, const uint8_t* pguid)
 {
+    if (NULL == pguid) {
+        return false;
+    }
+
     // Set GUID
-    m_guid = guid;
+    m_guid.getFromArray(pguid);
 
     // Save path to config file
     m_path = path;

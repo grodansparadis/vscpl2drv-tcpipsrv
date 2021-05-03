@@ -96,7 +96,7 @@ class CTcpipSrv
         Open
         @return True on success.
      */
-    bool open(std::string& path, const cguid& guid);
+    bool open(std::string& path, const uint8_t* pguid);
 
     /*!
         Flush and close the log file

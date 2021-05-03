@@ -203,9 +203,9 @@ VSCPOpen(const char* pPathConfig, const char* pguid)
     CTcpipSrv* pdrvObj = new CTcpipSrv();
     if (NULL != pdrvObj) {
 
-        cguid guid(pguid);
+        //cguid guid(pguid);
         std::string path = pPathConfig;
-        if (path.length() && pdrvObj->open(path, guid)) {
+        if (path.length() && pdrvObj->open(path, (const uint8_t *)pguid)) {
 
             if (!(h = addDriverObject(pdrvObj))) {
                 delete pdrvObj;
