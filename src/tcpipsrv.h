@@ -246,13 +246,7 @@ class CTcpipSrv
 
     /// True if config is remote writable
     bool m_bWriteEnable;
-
-    /// Authorization domain
-    //std::string m_authDomain;
-
-    /// Encryption key for passwords
-    //uint8_t m_vscp_key[];
-
+    
     /// interface to listen on
     std::string m_interface;
 
@@ -346,8 +340,6 @@ class CTcpipSrv
 
     // Mutex for client queue
     pthread_mutex_t m_mutex_clientList;
-
-    
 
     // Queue
     std::list<vscpEvent*> m_sendList;

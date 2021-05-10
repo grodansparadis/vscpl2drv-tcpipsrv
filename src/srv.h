@@ -85,6 +85,7 @@ class tcpipClientObj;
     "-OK - User need higher privilege level to perform this operation.\r\n"
 #define MSG_INTERFACE_NOT_FOUND  "-OK - Interface not found.\r\n"
 #define MSG_UNABLE_TO_SEND_EVENT "-OK - Unable to send event.\r\n"
+#define MSG_COMMAND_NOT_SUPPORTED "-OK - Command is not supported here.\r\n"
 
 #define MSG_VARIABLE_NOT_DEFINED "-OK - Variable is not defined.\r\n"
 #define MSG_VARIABLE_MUST_BE_EVENT_TYPE                                        \

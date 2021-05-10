@@ -1323,18 +1323,21 @@ void
 tcpipClientObj::handleClientCapabilityRequest(void)
 {
   std::string str;
-  uint8_t capabilities[8];
-
-  // TODO m_pObj->getVscpCapabilities(capabilities);
+  uint64_t capabilities = VSCP_SERVER_CAPABILITY_TCPIP | 
+                          VSCP_SERVER_CAPABILITY_IP6 | 
+                          VSCP_SERVER_CAPABILITY_IP4 | 
+                          VSCP_SERVER_CAPABILITY_SSL | 
+                          VSCP_SERVER_CAPABILITY_TWO_CONNECTIONS;
+  
   str = vscp_str_format("%02X-%02X-%02X-%02X-%02X-%02X-%02X-%02X\r\n",
-                        capabilities[7],
-                        capabilities[6],
-                        capabilities[5],
-                        capabilities[4],
-                        capabilities[3],
-                        capabilities[2],
-                        capabilities[1],
-                        capabilities[0]);
+                          (capabilities >> 56) & 0xff,
+                          (capabilities >> 48) & 0xff,
+                          (capabilities >> 40) & 0xff,
+                          (capabilities >> 32) & 0xff,
+                          (capabilities >> 24) & 0xff,
+                          (capabilities >> 16) & 0xff,
+                          (capabilities >> 8) & 0xff,
+                          (capabilities >> 0) & 0xff);
   write(str.c_str(), str.length());
   write(MSG_OK, strlen(MSG_OK));
 }
@@ -2358,10 +2361,10 @@ tcpipClientObj::handleClientTest(void)
 void
 tcpipClientObj::handleClientRestart(void)
 {
-  write(MSG_OK, strlen(MSG_OK));
+  write(MSG_COMMAND_NOT_SUPPORTED, strlen(MSG_COMMAND_NOT_SUPPORTED));
 #ifndef WIN32
-  sleep(1);
-  kill(getpid(), SIGUSR2);
+  // sleep(1);
+  // kill(getpid(), SIGUSR2);
 #else
   Sleep(1000);
 #endif
@@ -2386,11 +2389,11 @@ tcpipClientObj::handleClientShutdown(void)
     write(MSG_OK, strlen(MSG_OK));
   }
 
-  write(MSG_GOODBY, strlen(MSG_GOODBY));
+  write(MSG_COMMAND_NOT_SUPPORTED, strlen(MSG_COMMAND_NOT_SUPPORTED));
 
 #ifndef WIN32
-  sleep(1);
-  kill(getpid(), SIGUSR1);
+  // sleep(1);
+  // kill(getpid(), SIGUSR1);
 #endif
 }
 
@@ -2578,7 +2581,6 @@ tcpipClientObj::handleClientHelp(void)
            "debugging.\r\n";
     str += "SHUTDOWN          - Shutdown the daemon.\r\n";
     str += "RESTART           - Restart the daemon.\r\n";
-    str += "DRIVER            - Driver manipulation.\r\n";
     str += "INTERFACE         - Interface handling. \r\n";
     str += "WCYD/WHATCANYOUDO - Check server capabilities. \r\n";
     write((const char*)str.c_str(), str.length());
@@ -2634,7 +2636,7 @@ tcpipClientObj::handleClientHelp(void)
   }
   else if (m_pClientItem->CommandStartsWith("rcvloop")) {
     std::string str = "'RCVLOOP' - Enter the receive loop and receive "
-                      "events continously or until ";
+                      "events continuously or until ";
     str += "terminated with 'QUITLOOP'. Events are retrived on the form "
            "head,class,type,obid,time-stamp,GUID,data0,data1,data2,......."
            "....\r\n";
@@ -2713,11 +2715,11 @@ tcpipClientObj::handleClientHelp(void)
     write((const char*)str.c_str(), str.length());
   }
   else if (m_pClientItem->CommandStartsWith("shutdown")) {
-    std::string str = "'SHUTDOWN' Shutdown the daemon.\r\n";
+    std::string str = "'SHUTDOWN' Shutdown the daemon (not supported here).\r\n";
     write((const char*)str.c_str(), str.length());
   }
   else if (m_pClientItem->CommandStartsWith("restart")) {
-    std::string str = "'RESTART' Restart the daemon.\r\n";
+    std::string str = "'RESTART' Restart the daemon (not supported here).\r\n";
     write((const char*)str.c_str(), str.length());
   }
   else if (m_pClientItem->CommandStartsWith("interface")) {
@@ -2921,13 +2923,11 @@ tcpipClientThread(void* pData)
       if (ptcpipobj->m_commandArray.size() && ('+' == strCommand[0])) {
 
         if (vscp_startsWith(strCommand, "++", &strCommand)) {
-          for (int i = (unsigned int)ptcpipobj->m_commandArray.size() - 1;
-               i >= 0;
-               i--) {
+          for (int i=(unsigned int)ptcpipobj->m_commandArray.size()-1; i >= 0; i--) {
             std::string str =
               vscp_str_format("%d - %s",
                               ptcpipobj->m_commandArray.size() - i - 1,
-                              ptcpipobj->m_commandArray[i]);
+                              ptcpipobj->m_commandArray[i].c_str());
             vscp_trim(str);
             ptcpipobj->write(str, true);
           }
