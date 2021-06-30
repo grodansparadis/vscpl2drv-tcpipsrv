@@ -2,8 +2,8 @@
 	"users" : [
 		{
 			"name" : "admin",
-			"password" : "821C22DD764A1597769185793ECCC451;14AEF18317A279F9330B454198FB955D9304F9ADA230A495D66ED3AC7FF57063",
-			"fullname" : "Miss. Super user",
+			"password" : "487636FDE3637C7C853AAC9EAF6FA062;357C71CA59F760C08C4125C444A22A91FD1FE1FB0E5628771A572BAF6F61B71F",
+			"fullname" : "Miss. Super User",
 			"rights" : "admin",
 			"remotes" : [
 				"+127.0.0.0/24",
@@ -16,8 +16,8 @@
 		},
 		{
 			"name" : "user",
-			"password" : "DEBB6FCDB2F3E9ACD87A86D358E04BE0;16A3E5D3A2FC7CEDCA3D9707530A3C5A122994AE52EE7EF7816B4A67E93F4F05",
-			"fullname" : "Mr. Sample user",
+			"password" : "0839DD1BE692164847B601E6520CE23B;3E1B4D950F04EA3BFA2C43160B9D98ECC76B249F79A1062F041C526978591BA3",
+			"fullname" : "Mr. Sample User",
 			"rights" : "user",
 			"remotes" : "",
 			"events" : "",

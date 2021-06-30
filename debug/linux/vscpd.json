@@ -1,127 +1,161 @@
 {
-    "runasuser" : "vscp",
-    "debug" : 4294967295,		
-    "guid" : "FF:FF:FF:FF:FF:FF:FF:F5:00:00:00:00:00:00:00:01",
-    "servername" : "The VSCP daemon",
-    "classtypedb" : "/var/lib/vscp/vscpd/vscp_events.sqlite3",
-    "maindb" : "/var/lib/vscp/vscpd/vscp.sqlite3",
-    "discoverydb" : "/var/lib/vscp/vscpd/vscp.sqlite3",
-    "vscpkey" : "/var/vscp/vscp.key",
-    "logging" : {
-        "file-enable-log": true,
-        "file-log-level" : "debug",
-        "file-pattern" : "[vscp] [%^%l%$] %v",
-        "file-path" : "/tmp/vscpd.log",
-        "file-max-size" : 5242880,
-        "file-max-files" : 7,
-        "console-enable-log": true,
-        "console-log-level" : "debug",
-        "console-pattern" : "[vscp] [%^%l%$] %v"
+  "runasuser" : "vscp",
+  "debug" : 4294967295,		
+  "guid" : "FF:FF:FF:FF:FF:FF:FF:F5:88:88:00:00:00:00:00:01",
+  "servername" : "The VSCP daemon - tcpipsrv test",
+  "classtypedb" : "/var/lib/vscp/vscpd/vscp_events.sqlite3",
+  "maindb" : "/var/lib/vscp/vscpd/vscp.sqlite3",
+  "discoverydb" : "/var/lib/vscp/vscpd/vscp.sqlite3",
+  "vscpkey" : "/var/vscp/vscp.key",
+  "logging" : {
+    "file-enable-log": true,
+    "file-log-level" : "debug",
+    "file-pattern" : "[vscp: %c] [%^%l%$] %v",
+    "file-path" : "/tmp/vscpd.log",
+    "file-max-size" : 5242880,
+    "file-max-files" : 7,
+    "console-enable-log": true,
+    "console-log-level" : "debug",
+    "console-pattern" : "[vscp: %c] [%^%l%$] %v"
+  },
+
+  "mqtt": {
+    "bind": "",
+    "host": "192.168.1.7",
+    "port": 1883,
+    "mqtt-options": {
+      "tcp-nodelay": true,
+      "protocol-version": 311,
+      "receive-maximum": 20,
+      "send-maximum": 20,
+      "ssl-ctx-with-defaults": 0,
+      "tls-ocsp-required": 0,
+      "tls-use-os-certs": 0
     },
-
-    "mqtt" : {
-        "host" : "192.168.1.7",
-        "port" : 1883,
-        "user" : "vscp",
-	    "password": "secret",
-	    "clientid" : "mosq-vscp-daemon-000011",
-	    "format" : "json",
-        "qos" : 1,
-        "bcleansession" : false,
-        "bretain" : false,
-        "keepalive" : 60,
-        "reconnect-delay" : 2,
-        "reconnect-delay-max" : 10,
-        "reconnect-exponential-backoff" : false,
-        "cafile" : "",
-    	"capath" : "",
-    	"certfile" : "",
-    	"keyfile" : "",
-        "pwkeyfile" : "",
-        "topic-interfaces" : "vscp/{{guid}}/interfaces",
-        "subscribe" : [
-            "vscp/{{guid}}/#"
-        ],
-        "publish" : [
-            "vscp/{{guid}}/{{class}}/{{type}}",
-            "source/{{guid}}/{{class}}/{{type}}",
-            "DRAIN/{{guid}}/{{class}}/{{type}}"
-        ]
+    "user": "vscp",
+    "password": "secret",
+    "clientid": "the-vscp-daemon",
+    "publish-format": "json",
+    "subscribe-format": "auto",
+    "qos": 1,
+    "bcleansession": false,
+    "bretain": false,
+    "keepalive": 60,
+    "bjsonmeasurementblock": true,
+    "topic-daemon-base": "vscp-daemon/{{guid}}/",
+    "topic-drivers": "drivers",
+    "topic-discovery": "discovery",
+    "reconnect": {
+      "delay": 2,
+      "delay-max": 10,
+      "exponential-backoff": false
     },
+    "tls": {
+      "cafile": "",
+      "capath": "",
+      "certfile": "",
+      "keyfile": "",
+      "pwkeyfile": "",
+      "no-hostname-checking": true,
+      "cert-reqs": 0,
+      "version": "",
+      "ciphers": "",
+      "psk": "",
+      "psk-identity": ""
+    },
+    "will": {
+      "topic": "vscp-daemon/{{srvguid}}/will",
+      "qos": 1,
+      "retain": true,
+      "payload": "VSCP Daemon is down"
+    },
+      "subscribe" : [
+          "vscp/{{guid}}/#"
+      ],
+      "publish" : [
+          "vscp/{{guid}}/{{class}}/{{type}}",
+          "source/{{guid}}/{{class}}/{{type}}",
+          "DRAIN/{{guid}}/{{class}}/{{type}}"
+      ]
+  },
 
-    "drivers" : {
-        "level1" : [
-            {
-                "enable" : false,
-                "name" : "logger",
-                "config" : "/tmp/canallog.txt",
-                "flags" : 1,
-                "translation" : 2,
-                "path" : "/var/lib/vscp/drivers/level1/vscpl1drv-logger.so",
-                "guid" : "FF:FF:FF:FF:FF:FF:FF:F5:01:00:00:00:00:00:00:01",
+  "drivers" : {
+    "level1" : [
+      
+    ],
+    "level2" : [
+      {
+        "enable" : true,
+        "name" : "tcpip-srv",
+        "path-driver" : "/home/akhe/development/VSCP/vscpl2drv-tcpipsrv/build/libvscpl2drv-tcpipsrv.so",
+        "path-config" : "/home/akhe/development/VSCP/vscpl2drv-tcpipsrv/debug/linux/tcpipsrv.json",
+        "guid" : "FF:FF:FF:FF:FF:FF:FF:F5:02:88:88:00:00:00:00:01",
 
-                "mqtt" : {
-                    "host" : "127.0.0.1",
-                    "port" : 1883,
-                    "user" : "vscp",
-                    "password": "secret",
-                    "clientid" : "mosq-l1drv-logger",
-                    "format" : "json",
-                    "qos" : 0,
-                    "bcleansession" : false,
-                    "bretain" : false,
-                    "keepalive" : 60,
-                    "reconnect-delay" : 2,
-                    "reconnect-delay-max" : 10,
-                    "reconnect-exponential-backoff" : false,
-                    "cafile" : "",
-                    "capath" : "",
-                    "certfile" : "",
-                    "keyfile" : "",
-                    "pwkeyfile" : "",
-                    "subscribe" : [
-                        "vscp/{{guid}}/#"
-                    ],
-                    "publish" : [
-                        "vscp/{{guid}}/{{class}}/{{type}}/{{nodeid}}"
-                    ]
-                }
-            }
-        ],
-        "level2" : [
+        "mqtt": {
+          "bind": "",
+          "host": "test.mosquitto.org",
+          "port": 1883,
+          "mqtt-options": {
+            "tcp-nodelay": true,
+            "protocol-version": 311,
+            "receive-maximum": 20,
+            "send-maximum": 20,
+            "ssl-ctx-with-defaults": 0,
+            "tls-ocsp-required": 0,
+            "tls-use-os-certs": 0
+          },
+          "user": "vscp",
+          "password": "secret",
+          "clientid": "the-vscp-daemon tcpipsrv driver",
+          "publish-format": "json",
+          "subscribe-format": "auto",
+          "qos": 1,
+          "bcleansession": false,
+          "bretain": false,
+          "keepalive": 60,
+          "bjsonmeasurementblock": true,
+          "reconnect": {
+            "delay": 2,
+            "delay-max": 10,
+            "exponential-backoff": false
+          },
+          "tls": {
+            "cafile": "",
+            "capath": "",
+            "certfile": "",
+            "keyfile": "",
+            "pwkeyfile": "",
+            "no-hostname-checking": true,
+            "cert-reqs": 0,
+            "version": "",
+            "ciphers": "",
+            "psk": "",
+            "psk-identity": ""
+          },
+          "will": {
+            "topic": "vscp-daemon/{{srvguid}}/will",
+            "qos": 1,
+            "retain": true,
+            "payload": "VSCP Daemon is down"
+          },
+          "subscribe" : [
             {
-                "enable" : true,
-                "name" : "tcpip-srv",
-                "path-driver" : "/home/akhe/development/VSCP/vscpl2drv-tcpipsrv/build/libvscpl2drv-tcpipsrv.so",
-                "path-config" : "/home/akhe/development/VSCP/vscpl2drv-tcpipsrv/debug/conf_standard.json",
-                "guid" : "FF:FF:FF:FF:FF:FF:FF:F5:02:00:00:00:00:00:00:01",
-                "mqtt" : {
-                    "host" : "192.168.1.7",
-                    "port" : 1883,
-                    "user" : "vscp",
-                    "password": "secret",
-                    "clientid" : "mosq-vscp-daemon-tcpipsrv",
-                    "format" : "json",
-                    "qos" : 0,
-                    "bcleansession" : false,
-                    "bretain" : false,
-                    "keepalive" : 60,
-                    "reconnect-delay" : 2,
-                    "reconnect-delay-max" : 10,
-                    "reconnect-exponential-backoff" : false,
-                    "cafile" : "",
-                    "capath" : "",
-                    "certfile" : "",
-                    "keyfile" : "",
-                    "pwkeyfile" : "",
-                    "subscribe" : [
-                        "vscp/#"
-                    ],
-                    "publish" : [
-                        "vsclp2drv-tcpipsrv"
-                    ]
-                }
+              "topic": "vscp/tcpipsrv/{{guid}}/#",
+              "qos": 0,
+              "v5-options": 0,
+              "format": "auto"
             }
-        ]
-    }
+          ],
+          "publish" : [
+            {
+              "topic": "vscp/{{guid}}/{{class}}/{{type}}/{{nodeid}}",
+              "qos": 1,
+              "retain": false,
+              "format": "json"
+            }
+          ]
+        }
+      }
+    ]
+  }
 }

@@ -283,6 +283,10 @@ class CTcpipSrv
     uint32_t m_max_log_size;                  // Max size for logfile before rotating occures 
     uint16_t m_max_log_files;                 // Max log files to keep
 
+    bool m_bConsoleLogEnable;                     // True to enable logging to console
+    spdlog::level::level_enum m_consoleLogLevel;  // Console log level
+    std::string m_consoleLogPattern;              // Console log pattern
+
     // ------------------------------------------------------------------------
 
     /// Run flag

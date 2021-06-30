@@ -22,13 +22,13 @@
     "logging" : {
         "file-enable-log": true,
         "file-log-level" : "debug",
-        "file-pattern" : "[vcpl2drv-tcpipsrv %c] [%^%l%$] %v",
+        "file-pattern" : "[vcpl2drv-tcpipsrv: %c] [%^%l%$] %v",
         "file-path" : "/tmp/vscpl2drv-tcpipsrv.log",
         "file-max-size" : 5242880,
         "file-max-files" : 7,
         "console-enable-log": true,
         "console-log-level" : "debug",
-        "console-pattern" : "[vcpl2drv-tcpipsrv %c] [%^%l%$] %v"
+        "console-pattern" : "[vcpl2drv-tcpipsrv: %c] [%^%l%$] %v"
     } 
 }
 

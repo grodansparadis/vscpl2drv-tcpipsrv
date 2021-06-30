@@ -274,12 +274,7 @@ VSCPRead(long handle, vscpEvent* pEvent, unsigned long timeout)
         return CANAL_ERROR_MEMORY;
     }
 
-#ifndef WIN32
-    if (-1 == (rv = vscp_sem_wait(&pdrvObj->m_semReceiveQueue, timeout))) {
-#else
-    // !!!!!!!!!!!!!!!!!    TODO WIN32    !!!!!!!!!!!!!!!!!!!!!!!!!
-    if (1) {
-#endif        
+    if (-1 == (rv = vscp_sem_wait(&pdrvObj->m_semReceiveQueue, timeout))) {       
         if (ETIMEDOUT == errno) {
             return CANAL_ERROR_TIMEOUT;
         } else if (EINTR == errno) {
@@ -287,17 +282,20 @@ VSCPRead(long handle, vscpEvent* pEvent, unsigned long timeout)
             syslog(LOG_ERR, "[vscpl2drv-tcpipsrv] Interrupted by a signal handler");
 #endif            
             return CANAL_ERROR_INTERNAL;
-        } else if (EINVAL == errno) {
+        } 
+        else if (EINVAL == errno) {
 #ifndef WIN32            
             syslog(LOG_ERR, "[vscpl2drv-tcpipsrv] Invalid semaphore (timout)");
 #endif            
             return CANAL_ERROR_INTERNAL;
-        } else if (EAGAIN == errno) {
+        } 
+        else if (EAGAIN == errno) {
 #ifndef WIN32            
             syslog(LOG_ERR, "[vscpl2drv-tcpipsrv] Blocking error");
 #endif            
             return CANAL_ERROR_INTERNAL;
-        } else {
+        } 
+        else {
 #ifndef WIN32            
             syslog(LOG_ERR, "[vscpl2drv-tcpipsrv] Unknown error");
 #endif            

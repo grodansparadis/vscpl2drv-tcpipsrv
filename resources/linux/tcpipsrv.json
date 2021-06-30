@@ -1,6 +1,6 @@
 {
     "debug" : true,
-    "write" : false,
+    "write" : true,
     "key-file" : "/etc/vscp/vscp.key",
     "max-out-queue" : 32000,
     "max-in-queue" : 32000,
@@ -29,6 +29,12 @@
         "console-enable-log": true,
         "console-log-level" : "debug",
         "console-pattern" : "[vcpl2drv-tcpipsrv %c] [%^%l%$] %v"
+    },
+    "filter" : {
+      "in-filter" : "incoming filter on string form",
+      "in-mask" : "incoming mask on string form",
+      "out-filter" : "outgoing filter on string form",
+      "out-mask" : "outgoing mask on string form"
     } 
 }
 

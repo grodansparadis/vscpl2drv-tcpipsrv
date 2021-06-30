@@ -145,7 +145,7 @@ tcpipListenThread(void* pData)
 
   tcpipListenThreadObj* pListenObj = (tcpipListenThreadObj*)pData;
   if (NULL == pListenObj) {
-    spdlog::get("logger")->error(
+    spdlog::error(
       "TCP/IP client is missing client object data. Terinating thread.");
     return NULL;
   }
@@ -196,7 +196,7 @@ tcpipListenThread(void* pData)
   // Init. SSL subsystem
   if (pObj->m_j_config.value("ssl_certificate", "").length()) {
     if (0 == stcp_init_ssl(pListenObj->m_srvctx.ssl_ctx, &opts)) {
-      spdlog::get("logger")->error(
+      spdlog::error(
         "[TCP/IP srv thread] Failed to init. ssl.\n");
       return NULL;
     }
@@ -207,12 +207,12 @@ tcpipListenThread(void* pData)
   // Bind to selected interface
   if (0 == stcp_listening(&pListenObj->m_srvctx,
                           pListenObj->m_strListeningPort.c_str())) {
-    spdlog::get("logger")->error(
+    spdlog::error(
       "[TCP/IP srv thread] Failed to init listening socket.");
     return NULL;
   }
 
-  spdlog::get("logger")->debug("[TCP/IP srv listen thread] Started.");
+  spdlog::debug("[TCP/IP srv listen thread] Started.");
 
   while (!pListenObj->m_nStopTcpIpSrv) {
 
@@ -241,7 +241,7 @@ tcpipListenThread(void* pData)
 
           conn = stcp_new_connection(); // Init connection
           if (NULL == conn) {
-            spdlog::get("logger")->error(
+            spdlog::error(
               "[TCP/IP srv] -- Memory problem when creating "
               "conn object.");
             continue;
@@ -255,7 +255,7 @@ tcpipListenThread(void* pData)
                           &(conn->client))) {
 
             stcp_init_client_connection(conn, &opts);
-            spdlog::get("logger")->debug("[TCP/IP srv] -- Connection accept.");
+            spdlog::debug("[TCP/IP srv] -- Connection accept.");
 
 #ifdef WITH_WRAP
             /* Use tcpd / libwrap to determine whether a connection
@@ -270,7 +270,7 @@ tcpipListenThread(void* pData)
             if (!hosts_access(&wrap_req)) {
               // Access is denied
               if (!stcp_socket_get_address(conn, address, 1024)) {
-                spdlog::get("logger")->error("Client connection from {} "
+                spdlog::error("Client connection from {} "
                                              "denied access by tcpd.",
                                              address);
               }
@@ -283,7 +283,7 @@ tcpipListenThread(void* pData)
             // Create the thread object
             tcpipClientObj* pClientObj = new tcpipClientObj(pListenObj);
             if (NULL == pClientObj) {
-              spdlog::get("logger")->error(
+              spdlog::error(
                 "[TCP/IP srv] -- Memory problem when "
                 "creating client thread.");
               stcp_close_connection(conn);
@@ -293,14 +293,14 @@ tcpipListenThread(void* pData)
 
             pClientObj->m_conn    = conn;
             pClientObj->m_pParent = pListenObj;
-            spdlog::get("logger")->debug(
+            spdlog::debug(
               "Controlobject: Starting client tcp/ip thread...");
             int err;
             if ((err = pthread_create(&pClientObj->m_tcpipClientThread,
                                       NULL,
                                       tcpipClientThread,
                                       pClientObj))) {
-              spdlog::get("logger")->error(
+              spdlog::error(
                 "[TCP/IP srv] -- Failed to run client "
                 "tcp/ip client thread. error=%d",
                 err);
@@ -332,7 +332,7 @@ tcpipListenThread(void* pData)
 
   } // While
 
-  spdlog::get("logger")->debug("[TCP/IP srv listen thread] Preparing Exit.");
+  spdlog::debug("[TCP/IP srv listen thread] Preparing Exit.");
 
   // Wait for clients to terminate
   int loopCnt = 0;
@@ -383,7 +383,7 @@ tcpipListenThread(void* pData)
   if (pObj->m_j_config.value("ssl_certificate", "").length()) {
     stcp_uninit_ssl();
   }
-  spdlog::get("logger")->debug("[TCP/IP srv listen thread] Exit.");
+  spdlog::debug("[TCP/IP srv listen thread] Exit.");
   return NULL;
 }
 
@@ -500,14 +500,14 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
   }
 
   if (NULL == m_pObj) {
-    spdlog::get("logger")->error(
+    spdlog::error(
       "[TCP/IP srv] ERROR: Control object pointer is NULL in command "
       "handler.");
     return VSCP_TCPIP_RV_CLOSE; // Close connection
   }
 
   if (NULL == m_pClientItem) {
-    spdlog::get("logger")->error(
+    spdlog::error(
       "[TCP/IP srv] ERROR: ClientItem pointer is NULL in command handler.");
     return VSCP_TCPIP_RV_CLOSE; // Close connection
   }
@@ -542,7 +542,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
         handleClientRcvLoop();
       }
       catch (...) {
-        spdlog::get("logger")->error(
+        spdlog::error(
           "TCPIP: Exception occurred handleClientRcvLoop");
       }
     }
@@ -566,7 +566,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
       handleClientUser();
     }
     catch (...) {
-      spdlog::get("logger")->error(
+      spdlog::error(
         "TCPIP: Exception occurred handleClientUser");
     }
   }
@@ -579,17 +579,17 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
 
     try {
       if (!handleClientPassword()) {
-        spdlog::get("logger")->error(
+        spdlog::error(
           "[TCP/IP srv] Command: Password. Not authorized.");
         return VSCP_TCPIP_RV_CLOSE; // Close connection
       }
     }
     catch (...) {
-      spdlog::get("logger")->error(
+      spdlog::error(
         "TCPIP: Exception occurred handleClientPassword");
     }
 
-    spdlog::get("logger")->debug("[TCP/IP srv] Command: Password. PASS");
+    spdlog::debug("[TCP/IP srv] Command: Password. OK");
   }
 
   //*********************************************************************
@@ -601,7 +601,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
       handleChallenge();
     }
     catch (...) {
-      spdlog::get("logger")->error("TCPIP: Exception occurred handleChallange");
+      spdlog::error("TCPIP: Exception occurred handleChallange");
     }
   }
 
@@ -611,7 +611,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
 
   else if (m_pClientItem->CommandStartsWith("quit") ||
            m_pClientItem->CommandStartsWith("exit")) {
-    spdlog::get("logger")->debug("[TCP/IP srv] Command: Close.");
+    spdlog::debug("[TCP/IP srv] Command: Close.");
     write(MSG_GOODBY, strlen(MSG_GOODBY));
     return VSCP_TCPIP_RV_CLOSE; // Close connection
   }
@@ -625,7 +625,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
         handleClientShutdown();
       }
       catch (...) {
-        spdlog::get("logger")->error(
+        spdlog::error(
           "TCPIP: Exception occurred handleClientShutdown");
       }
     }
@@ -641,7 +641,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
         handleClientSend();
       }
       catch (...) {
-        spdlog::get("logger")->error(
+        spdlog::error(
           "TCPIP: Exception occurred handleClientSend");
       }
     }
@@ -658,7 +658,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
         handleClientReceive();
       }
       catch (...) {
-        spdlog::get("logger")->error(
+        spdlog::error(
           "TCPIP: Exception occurred handleClientReceive");
       }
     }
@@ -675,7 +675,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
       handleClientDataAvailable();
     }
     catch (...) {
-      spdlog::get("logger")->error(
+      spdlog::error(
         "TCPIP: Exception occurred handleClientDataAvailable");
     }
   }
@@ -691,7 +691,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
       handleClientClearInputQueue();
     }
     catch (...) {
-      spdlog::get("logger")->error(
+      spdlog::error(
         "TCPIP: Exception occurred handleClientClearInputQueue");
     }
   }
@@ -705,7 +705,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
       handleClientGetStatistics();
     }
     catch (...) {
-      spdlog::get("logger")->error(
+      spdlog::error(
         "TCPIP: Exception occurred handleClientGetStatistics");
     }
   }
@@ -719,7 +719,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
       handleClientGetStatus();
     }
     catch (...) {
-      spdlog::get("logger")->error(
+      spdlog::error(
         "TCPIP: Exception occurred handleClientGetStatus");
     }
   }
@@ -734,7 +734,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
       handleClientGetChannelID();
     }
     catch (...) {
-      spdlog::get("logger")->error(
+      spdlog::error(
         "TCPIP: Exception occurred handleClientGetChannelID");
     }
   }
@@ -750,7 +750,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
         handleClientSetChannelGUID();
       }
       catch (...) {
-        spdlog::get("logger")->error(
+        spdlog::error(
           "TCPIP: Exception occurred handleClientSetChannelGUID");
       }
     }
@@ -766,7 +766,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
       handleClientGetChannelGUID();
     }
     catch (...) {
-      spdlog::get("logger")->error(
+      spdlog::error(
         "TCPIP: Exception occurred handleClientGetChannelGUID");
     }
   }
@@ -781,7 +781,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
       handleClientGetVersion();
     }
     catch (...) {
-      spdlog::get("logger")->error(
+      spdlog::error(
         "TCPIP: Exception occurred handleClientGetVersion");
     }
   }
@@ -797,7 +797,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
         handleClientSetFilter();
       }
       catch (...) {
-        spdlog::get("logger")->error(
+        spdlog::error(
           "TCPIP: Exception occurred handleClientSetFilter");
       }
     }
@@ -814,7 +814,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
         handleClientSetMask();
       }
       catch (...) {
-        spdlog::get("logger")->error(
+        spdlog::error(
           "TCPIP: Exception occurred handleClientSetMask");
       }
     }
@@ -829,7 +829,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
       handleClientHelp();
     }
     catch (...) {
-      spdlog::get("logger")->error(
+      spdlog::error(
         "TCPIP: Exception occurred handleClientHelp");
     }
   }
@@ -844,7 +844,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
         handleClientRestart();
       }
       catch (...) {
-        spdlog::get("logger")->error(
+        spdlog::error(
           "TCPIP: Exception occurred handleClientRestart");
       }
     }
@@ -861,7 +861,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
         handleClientInterface();
       }
       catch (...) {
-        spdlog::get("logger")->error(
+        spdlog::error(
           "TCPIP: Exception occurred handleClientInterface");
       }
     }
@@ -877,7 +877,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
         handleClientTest();
       }
       catch (...) {
-        spdlog::get("logger")->error(
+        spdlog::error(
           "TCPIP: Exception occurred handleClientTest");
       }
     }
@@ -893,7 +893,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
       handleClientCapabilityRequest();
     }
     catch (...) {
-      spdlog::get("logger")->error(
+      spdlog::error(
         "TCPIP: Exception occurred handleClientCapabilityRequest");
     }
   }
@@ -907,7 +907,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
       handleClientMeasurement();
     }
     catch (...) {
-      spdlog::get("logger")->error(
+      spdlog::error(
         "TCPIP: Exception occurred handleClientMeasurement");
     }
   }
@@ -1611,7 +1611,7 @@ tcpipClientObj::handleClientSend(void)
       m_pClientItem->m_pUserItem->getUserName(),
       event.vscp_class,
       event.vscp_type);
-    spdlog::get("logger")->error("{}", strErr);
+    spdlog::error("{}", strErr);
     write(MSG_MOT_ALLOWED_TO_SEND_EVENT, strlen(MSG_MOT_ALLOWED_TO_SEND_EVENT));
 
     if (NULL != event.pdata) {
@@ -1632,7 +1632,7 @@ tcpipClientObj::handleClientSend(void)
       m_pClientItem->m_pUserItem->getUserName(),
       event.vscp_class,
       event.vscp_type);
-    spdlog::get("logger")->error("{}", strErr);
+    spdlog::error("{}", strErr);
     write(MSG_MOT_ALLOWED_TO_SEND_EVENT, strlen(MSG_MOT_ALLOWED_TO_SEND_EVENT));
 
     if (NULL != event.pdata) {
@@ -1653,7 +1653,7 @@ tcpipClientObj::handleClientSend(void)
       m_pClientItem->m_pUserItem->getUserName().c_str(),
       event.vscp_class,
       event.vscp_type);
-    spdlog::get("logger")->error("{}", strErr);
+    spdlog::error("{}", strErr);
     write(MSG_MOT_ALLOWED_TO_SEND_EVENT, strlen(MSG_MOT_ALLOWED_TO_SEND_EVENT));
 
     if (NULL != event.pdata) {
@@ -1674,7 +1674,7 @@ tcpipClientObj::handleClientSend(void)
       (const char*)m_pClientItem->m_pUserItem->getUserName().c_str(),
       event.vscp_class,
       event.vscp_type);
-    spdlog::get("logger")->error("{}", strErr);
+    spdlog::error("{}", strErr);
     write(MSG_MOT_ALLOWED_TO_SEND_EVENT, strlen(MSG_MOT_ALLOWED_TO_SEND_EVENT));
 
     if (NULL != event.pdata) {
@@ -1694,7 +1694,7 @@ tcpipClientObj::handleClientSend(void)
       (const char*)m_pClientItem->m_pUserItem->getUserName().c_str(),
       event.vscp_class,
       event.vscp_type);
-    spdlog::get("logger")->error("{}", strErr);
+    spdlog::error("{}", strErr);
     write(MSG_MOT_ALLOWED_TO_SEND_EVENT, strlen(MSG_MOT_ALLOWED_TO_SEND_EVENT));
 
     if (NULL != event.pdata) {
@@ -2254,7 +2254,7 @@ tcpipClientObj::handleClientPassword(void)
       vscp_str_format(("[TCP/IP srv] User [%s][%s] not allowed to connect.\n"),
                       (const char*)m_pClientItem->m_UserName.c_str(),
                       (const char*)strPassword.c_str());
-    spdlog::get("logger")->error("{}", strErr);
+    spdlog::error("{}", strErr);
     write(MSG_PASSWORD_ERROR, strlen(MSG_PASSWORD_ERROR));
     return false;
   }
@@ -2275,7 +2275,7 @@ tcpipClientObj::handleClientPassword(void)
     std::string strErr =
       vscp_str_format(("[TCP/IP srv] Host [%s] not allowed to connect.\n"),
                       (const char*)remoteaddr.c_str());
-    spdlog::get("logger")->error("{}", strErr);
+    spdlog::error("{}", strErr);
     write(MSG_INVALID_REMOTE_ERROR, strlen(MSG_INVALID_REMOTE_ERROR));
     return false;
   }
@@ -2289,7 +2289,7 @@ tcpipClientObj::handleClientPassword(void)
     vscp_str_format(("[TCP/IP srv] Host [%s] User [%s] allowed to connect.\n"),
                     (const char*)remoteaddr.c_str(),
                     (const char*)m_pClientItem->m_UserName.c_str());
-  spdlog::get("logger")->error("{}", strErr);
+  spdlog::info("{}", strErr);
   m_pClientItem->bAuthenticated = true;
   write(MSG_OK, strlen(MSG_OK));
 
@@ -2384,7 +2384,7 @@ tcpipClientObj::handleClientShutdown(void)
     return;
   }
 
-  spdlog::get("logger")->debug("tcp/ip client requested shutdown!!!");
+  spdlog::debug("tcp/ip client requested shutdown!!!");
   if (!m_pClientItem->bAuthenticated) {
     write(MSG_OK, strlen(MSG_OK));
   }
@@ -2753,21 +2753,21 @@ tcpipClientThread(void* pData)
 {
   tcpipClientObj* ptcpipobj = (tcpipClientObj*)pData;
   if (NULL == ptcpipobj) {
-    spdlog::get("logger")->error("[TCP/IP srv client thread] Error, "
+    spdlog::error("[TCP/IP srv client thread] Error, "
                                  "Client thread object not initialized.");
     return NULL;
   }
 
   if (NULL == ptcpipobj->m_pParent) {
-    spdlog::get("logger")->error("[TCP/IP srv client thread] Error, "
+    spdlog::error("[TCP/IP srv client thread] Error, "
                                  "Control object not initialized.");
     return NULL;
   }
 
-  spdlog::get("logger")->debug("[TCP/IP srv client thread] Thread started.");
+  spdlog::debug("[TCP/IP srv client thread] Thread started.");
   ptcpipobj->m_pClientItem = new CClientItem();
   if (NULL == ptcpipobj->m_pClientItem) {
-    spdlog::get("logger")->error("[TCP/IP srv client thread] Memory error, "
+    spdlog::error("[TCP/IP srv client thread] Memory error, "
                                  "Cant allocate client structure.");
     return NULL;
   }
@@ -2792,7 +2792,7 @@ tcpipClientThread(void* pData)
     delete ptcpipobj->m_pClientItem;
     ptcpipobj->m_pClientItem = NULL;
     pthread_mutex_unlock(&ptcpipobj->m_pObj->m_clientList.m_mutexItemList);
-    spdlog::get("logger")->error(
+    spdlog::error(
       "TCP/IP server: Failed to add client. Terminating thread.");
     return NULL;
   }
@@ -2814,7 +2814,7 @@ tcpipClientThread(void* pData)
   str += std::string("\r\n");
   str += std::string(MSG_OK);
   ptcpipobj->write((const char*)str.c_str(), str.length());
-  spdlog::get("logger")->debug("[TCP/IP srv] Ready to serve client.");
+  spdlog::debug("[TCP/IP srv] Ready to serve client.");
 
   // Enter command loop
   char buf[8192];
@@ -2824,7 +2824,7 @@ tcpipClientThread(void* pData)
     // Check for client inactivity
     if ((time(NULL) - ptcpipobj->m_pClientItem->m_clientActivity) >
         TCPIPSRV_INACTIVITY_TIMOUT) {
-      spdlog::get("logger")->info(
+      spdlog::info(
         "[TCP/IP srv client thread] Client closed due to inactivity.");
       break;
     }
@@ -3002,7 +3002,7 @@ tcpipClientThread(void* pData)
   // Delete the client object
   delete ptcpipobj;
 
-  spdlog::get("logger")->debug("[TCP/IP srv client thread] Exit.");
+  spdlog::debug("[TCP/IP srv client thread] Exit.");
 
   return NULL;
 }
