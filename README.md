@@ -367,7 +367,7 @@ The format for the user file is specified below.
 ##### TLS/SSL
 Settings for TLS (Transport Layer Security), SSL.  Not used at the moment.
 
-As TLS/SSL is not supported yet (it will be) in this driver it is important to understand that if used in an open environment like the internet it is not secure. People listening on the traffic can see both data and username/password credentials. It is therefore important to use the driver in a controlled environment and as early as possible move the flow of events to a secure environment like MQTT with TLS activated. This is often not a problem in a local cable based environment but is definitly a problem using wireless transmission that lack encryption.
+As TLS/SSL is not supported yet (it will be) in this driver it is important to understand that if used in an open environment like the internet it is not secure. People listening on the traffic can see both data and username/password credentials. It is therefore important to use the driver in a controlled environment and as early as possible move the flow of events to a secure environment like MQTT with TLS activated. This is often not a problem in a local cable based environment but is definitely a problem using wireless transmission that lack encryption.
 
 A solution is to use a SSL wrapper like [this one](https://github.com/cesanta/ssl_wrapper). 
 
@@ -528,7 +528,7 @@ The default filter/mask pair means that all events are received by the driver.
  
  A good location for the file is _/etc/vscp/users.json_  Set user and group to _vscp_ and rights to 0x700.
 
- The installation script install a sample user file to _/usr/local/share/vscpl2drv-tcpipsrv/_. This file can be used as a starting point for your own setup. It defines two users. _admin_ and _user_ both with password _secret_.
+ The installation script install a sample user file to _/usr/share/vscpl2drv-tcpipsrv/_. This file can be used as a starting point for your own setup. It defines two users. _admin_ and _user_ both with password _secret_.
 
  The user configuration file is on JSON format and looks like this.
 
@@ -706,11 +706,11 @@ Add the following to the level II section of the VSCP daemon configuration file
 }
 ```
 
-Copy _/var/local/share/vscpl2drv-tcpipsrv/tcpipsrv.json_ and _/var/local/share/vscpl2drv-tcpipsrv/users.json_ to _/etc/vscp_
+Copy _/var/share/vscpl2drv-tcpipsrv/tcpipsrv.json_ and _/var/share/vscpl2drv-tcpipsrv/users.json_ to _/etc/vscp_
 
 ```bash
-sudo cp /var/local/share/vscpl2drv-tcpipsrv/tcpipsrv.json /etc/vscp
-sudo cp /var/local/share/vscpl2drv-tcpipsrv/users.json /etc/vscp
+sudo cp /var/share/vscpl2drv-tcpipsrv/tcpipsrv.json /etc/vscp
+sudo cp /var/share/vscpl2drv-tcpipsrv/users.json /etc/vscp
 ```
 
 Restart the vscp daemon

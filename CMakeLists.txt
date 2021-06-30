@@ -42,6 +42,11 @@ if(NOT DEFINED PATCH_VERSION)
     SET(PATCH_VERSION "0")
 endif()
 
+# Prevent abi warnings in nlohmann
+SET(GCC_VSCP_COMPILE_FLAGS "-Wno-psabi")
+# Profiling
+#SET(GCC_VSCP_LINK_FLAGS    "-lgcov")
+
 SET(CPACK_PACKAGE_DESCRIPTION "VSCP driver for tcp/ip server")
 SET(CPACK_PACKAGE_DESCRIPTION_SUMMARY "VSCP level II Driver for VSCP that export a server interface for the VSCP tcp/ip link protocol")
 SET(CPACK_PACKAGE_VENDOR "the VSCP Project")
