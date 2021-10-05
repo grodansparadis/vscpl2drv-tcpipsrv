@@ -1,3 +1,10 @@
+cmake_minimum_required(VERSION 3.5)
+project(man LANGUAGES CXX C)
+set(PACKAGE_AUTHOR "Ake Hedman, the VSCP Project")
+
+# --- System Libraries ---
+include(GNUInstallDirs)
+
 set(PANDOCCOMMAND_FOUND 0)
 find_program(PANDOCCOMMAND_PATH
   NAMES pandoc
