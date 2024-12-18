@@ -7,7 +7,7 @@
 //
 // This file is part of the VSCP (http://www.vscp.org)
 //
-// Copyright (C) 2000-2021 Ake Hedman,
+// Copyright (C) 2000-2024 Ake Hedman,
 // the VSCP Project, <akhe@vscp.org>
 //
 // This file is distributed in the hope that it will be useful,
@@ -44,7 +44,7 @@
 #include <time.h>
 
 #include <canal.h>
-#include <canal_macro.h>
+#include <canal-macro.h>
 #include <dllist.h>
 #include <guid.h>
 #include <vscp.h>
@@ -52,7 +52,7 @@
 #include <vscpremotetcpif.h>
 #include "clientlist.h"
 
-#include <json.hpp>  // Needs C++11  -std=c++11
+#include <nlohmann/json.hpp>  // Needs C++11  -std=c++11
 
 #include "spdlog/spdlog.h"
 #include "spdlog/sinks/rotating_file_sink.h"

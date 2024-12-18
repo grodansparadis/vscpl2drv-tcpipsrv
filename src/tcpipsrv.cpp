@@ -7,7 +7,7 @@
 //
 // This file is part of the VSCP Project (http://www.vscp.org)
 //
-// Copyright (C) 2000-2021 Ake Hedman,
+// Copyright (C) 2000-2024 Ake Hedman,
 // the VSCP Project, <akhe@vscp.org>
 //
 // This file is distributed in the hope that it will be useful,
@@ -61,13 +61,13 @@
 #include <hlo.h>
 #include <remotevariablecodes.h>
 #include <vscp.h>
-#include <vscp_class.h>
-#include <vscp_type.h>
+#include <vscp-class.h>
+#include <vscp-type.h>
 #include <vscpdatetime.h>
 #include <vscphelper.h>
 #include <vscpremotetcpif.h>
 
-#include <json.hpp> // Needs C++11  -std=c++11
+#include <nlohmann/json.hpp> // Needs C++11  -std=c++11
 #include <mustache.hpp>
 
 #include <spdlog/async.h>
@@ -1089,26 +1089,26 @@ CTcpipSrv::readVariable(vscpEventEx& ex, const json& json_req)
     j["arg"]["type"]  = VSCP_REMOTE_VARIABLE_CODE_INTEGER;
     j["arg"]["value"] = 9;
   }
-  else if ("users" == j.value("name", "")) {
+  // else if ("users" == j.value("name", "")) {
 
-    if (!m_j_config["users"].is_array()) {
-      spdlog::warn("'users' must be of type array.");
-      j["result"] = VSCP_ERROR_SUCCESS;
-      goto abort;
-    }
+  //   if (!m_j_config["users"].is_array()) {
+  //     spdlog::warn("'users' must be of type array.");
+  //     j["result"] = VSCP_ERROR_SUCCESS;
+  //     goto abort;
+  //   }
 
-    int index = j.value("index", 0); // get index
-    if (index >= m_j_config["users"].size()) {
-      // Index to large
-      spdlog::warn("index of array is to large [%u].",
-                                  index >= m_j_config["users"].size());
-      j["result"] = VSCP_ERROR_INDEX_OOB;
-      goto abort;
-    }
+  //   int index = j.value("index", 0); // get index
+  //   if (index >= m_j_config["users"].size()) {
+  //     // Index to large
+  //     spdlog::warn("index of array is to large [%u].",
+  //                                 index >= m_j_config["users"].size());
+  //     j["result"] = VSCP_ERROR_INDEX_OOB;
+  //     goto abort;
+  //   }
 
-    j["arg"]["type"]  = VSCP_REMOTE_VARIABLE_CODE_JSON;
-    j["arg"]["value"] = m_j_config["users"][index].dump();
-  }
+  //   j["arg"]["type"]  = VSCP_REMOTE_VARIABLE_CODE_JSON;
+  //   j["arg"]["value"] = m_j_config["users"][index].dump();
+  // }
   else {
     j["result"] = VSCP_ERROR_MISSING;
     spdlog::error("Variable [] is unknown.");
@@ -1359,36 +1359,36 @@ CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
     j["arg"]["type"]  = VSCP_REMOTE_VARIABLE_CODE_BOOLEAN;
     j["arg"]["value"] = m_j_config.value("ssl-short-trust", false);
   }
-  else if ("users" == j.value("name", "")) {
+  // else if ("users" == j.value("name", "")) {
 
-    // users must be array
-    if (!m_j_config["users"].is_array()) {
-      spdlog::warn("'users' must be of type array.");
-      j["result"] = VSCP_ERROR_INVALID_TYPE;
-      goto abort;
-    }
+  //   // users must be array
+  //   if (!m_j_config["users"].is_array()) {
+  //     spdlog::warn("'users' must be of type array.");
+  //     j["result"] = VSCP_ERROR_INVALID_TYPE;
+  //     goto abort;
+  //   }
 
-    // Must be object
-    if (!m_j_config["args"].is_object()) {
-      spdlog::warn("The user info must be an object.");
-      j["result"] = VSCP_ERROR_INVALID_TYPE;
-      goto abort;
-    }
+  //   // Must be object
+  //   if (!m_j_config["args"].is_object()) {
+  //     spdlog::warn("The user info must be an object.");
+  //     j["result"] = VSCP_ERROR_INVALID_TYPE;
+  //     goto abort;
+  //   }
 
-    int index = j.value("index", 0); // get index
-    if (index >= m_j_config["users"].size()) {
-      // Index to large
-      spdlog::warn("index of array is to large [%u].",
-                                  index >= m_j_config["users"].size());
-      j["result"] = VSCP_ERROR_INDEX_OOB;
-      goto abort;
-    }
+  //   int index = j.value("index", 0); // get index
+  //   if (index >= m_j_config["users"].size()) {
+  //     // Index to large
+  //     spdlog::warn("index of array is to large [%u].",
+  //                                 index >= m_j_config["users"].size());
+  //     j["result"] = VSCP_ERROR_INDEX_OOB;
+  //     goto abort;
+  //   }
 
-    m_j_config["users"][index] = j["args"];
+  //   m_j_config["users"][index] = j["args"];
 
-    j["arg"]["type"]  = VSCP_REMOTE_VARIABLE_CODE_JSON;
-    j["arg"]["value"] = m_j_config["users"][index].dump();
-  }
+  //   j["arg"]["type"]  = VSCP_REMOTE_VARIABLE_CODE_JSON;
+  //   j["arg"]["value"] = m_j_config["users"][index].dump();
+  // }
   else {
     j["result"] = VSCP_ERROR_MISSING;
     spdlog::error("Variable [] is unknown.");

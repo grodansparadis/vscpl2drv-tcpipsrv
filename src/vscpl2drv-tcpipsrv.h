@@ -8,7 +8,7 @@
 // 
 // This file is part of the VSCP (http://www.vscp.org) 
 //
-// Copyright (C) 2000-2020 Ake Hedman, 
+// Copyright (C) 2000-2024 Ake Hedman, 
 // Ake Hedman, the VSCP Project, <akhe@vscp.org>
 // 
 // This file is distributed in the hope that it will be useful,
@@ -43,7 +43,7 @@
 #include <pthread.h>
 #include <canal.h>
 #include <vscpremotetcpif.h>
-#include <canal_macro.h>
+#include <canal-macro.h>
 #include <vscp.h>
 #include <hlo.h>
 
