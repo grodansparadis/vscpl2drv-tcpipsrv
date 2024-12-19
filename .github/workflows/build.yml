@@ -20,14 +20,6 @@ jobs:
         repository: grodansparadis/vscpl2drv-tcpipsrv
         ref: master
         submodules: 'recursive'
-
-    - name: Checkout vscp repo
-      uses: actions/checkout@v4
-      with:
-        repository: grodansparadis/vscp
-        path: vscp
-        ref: master
-        submodules: 'recursive'
      
     - name: Checkout google test repo
       run: sudo apt-get install libgtest-dev && cd /usr/src/gtest && sudo mkdir build && cd build && sudo cmake .. && sudo make DESTDIR=/usr/lib
