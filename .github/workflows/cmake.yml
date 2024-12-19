@@ -16,9 +16,12 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+      with:
+        repository: grodansparadis/vscpl2drv-tcpipsrv
+        submodules: 'recursive' 
 
     - name: Checkout vscp repo
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
       with:
         repository: grodansparadis/vscp
         path: vscp
