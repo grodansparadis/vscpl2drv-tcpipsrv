@@ -246,7 +246,7 @@ if (WIN32)
   include_directories( PUBLIC src/
     ./third_party/vscp/src/vscp/common/  
     ./third_party/vscp/src/common/
-    ./third_party/vscp/third_party/nlohmann/
+    ./third_party/vscp/third_party/nlohmann/include
     ./third_party/vscp/third_party/mustache/
     ./third_party/vscp/third_party/spdlog/include/
     ${PThreads4W_INCLUDE_DIR}
@@ -258,7 +258,7 @@ else()
   include_directories( PUBLIC src/
     ./third_party/vscp/src/vscp/common/
     ./third_party/vscp/src/common
-    ./third_party/vscp/third_party/nlohmann/
+    ./third_party/vscp/third_party/nlohmann/include
     ./third_party/vscp/third_party/mustache/
     ./third_party/vscp/third_party/spdlog/include/
     ./third_party/vscp/third_party/maddy/include/
