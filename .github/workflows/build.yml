@@ -18,6 +18,7 @@ jobs:
     - uses: actions/checkout@v4
       with:
         repository: grodansparadis/vscpl2drv-tcpipsrv
+        ref: master
         submodules: 'recursive'
 
     - name: Checkout vscp repo
