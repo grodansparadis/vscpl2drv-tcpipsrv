@@ -18,7 +18,7 @@ jobs:
     - uses: actions/checkout@v4
       with:
         submodules: 'recursive'
-     
+
     - name: Checkout google test repo
       run: sudo apt-get install libgtest-dev && cd /usr/src/gtest && sudo mkdir build && cd build && sudo cmake .. && sudo make DESTDIR=/usr/lib
 
@@ -58,7 +58,7 @@ jobs:
         make -j$(nproc)
         sudo cpack -G DEB 
         sudo make install DESTDIR=AppDir
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.os }}_vscpl2drv-tcpipsrv_15.1.0.deb
         path: /home/runner/work/vscpl2drv-tcpipsrv/vscpl2drv-tcpipsrv/build/vscpl2drv-tcpipsrv_15.1.0.deb
