@@ -17,7 +17,6 @@ jobs:
     # https://github.com/actions/checkout  
     - uses: actions/checkout@v4
       with:
-        ref: master
         submodules: 'recursive'
      
     - name: Checkout google test repo
