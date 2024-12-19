@@ -417,7 +417,7 @@ See [this entry in OpenSSL documentation](https://www.openssl.org/docs/manmaster
 Sets the minimal accepted version of SSL/TLS protocol according to the table:
 
 | Selected protocols | setting |
-| ================== | ======= |
+| ------------------ | ------- |
 | SSL2+SSL3+TLS1.0+TLS1.1+TLS1.2 | 0 |
 | SSL3+TLS1.0+TLS1.1+TLS1.2 | 1 |
 | TLS1.0+TLS1.1+TLS1.2 | 2 |
