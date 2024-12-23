@@ -1606,9 +1606,9 @@ tcpipClientObj::handleClientSend(void)
       !checkPrivilege(VSCP_USER_RIGHT_ALLOW_SEND_L1CTRL_EVENT)) {
 
     std::string strErr = vscp_str_format(
-      ("[TCP/IP srv] User [{}] not allowed to send event class=%d "
+      ("[TCP/IP srv] User [{%s}] not allowed to send event class=%d "
        "type=%d.\n"),
-      m_pClientItem->m_pUserItem->getUserName(),
+      m_pClientItem->m_pUserItem->getUserName().c_str(),
       event.vscp_class,
       event.vscp_type);
     spdlog::error("{}", strErr);
@@ -1629,7 +1629,7 @@ tcpipClientObj::handleClientSend(void)
     std::string strErr = vscp_str_format(
       ("[TCP/IP srv] User [{}] not allowed to send event class={} "
        "type={}.\n"),
-      m_pClientItem->m_pUserItem->getUserName(),
+      m_pClientItem->m_pUserItem->getUserName().c_str(),
       event.vscp_class,
       event.vscp_type);
     spdlog::error("{}", strErr);
