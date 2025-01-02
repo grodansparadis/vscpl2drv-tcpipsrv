@@ -1,4 +1,5 @@
 Change log for vscpl2drv-tcpipsrv
 =================================
 
+250102 AKHE Logs is now only on git "git log --oneline --decorate --graph --all"
 210630 AKHE Release 15.0.0
