@@ -555,7 +555,11 @@ Any number of users can be specified
 The login user name
 
 ##### password
-Hash calculated over "user:password" stored as 'pw:salt'
+Hash calculated over "user:password" stored as md5 hash on hexadecimal format. On a Linux system you can generate this hash for a given username/password with
+
+```bash
+echo -n user:password | md5sum
+```
 
 With the VSCP daemon is a script **vscp-mkpassword** installed that can be used to generate passwords.
 
@@ -733,7 +737,7 @@ Connected to localhost.
 Escape character is '^]'.
 Welcome to the VSCP tcp/ip server [l2drv].
 Version: 15.0.0-0
-Copyright © 2000-2021 Ake Hedman, the VSCP Project, https://www.vscp.org
+Copyright © 2000-2025 Ake Hedman, the VSCP Project, https://www.vscp.org
 +OK - Success.
 ```
 

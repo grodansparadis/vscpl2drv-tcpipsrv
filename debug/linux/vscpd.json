@@ -1,6 +1,6 @@
 {
-  "runasuser" : "vscp",
-  "debug" : 4294967295,		
+  "runasuser" : "",
+  "debug" : 4294967295,
   "guid" : "FF:FF:FF:FF:FF:FF:FF:F5:88:88:00:00:00:00:00:01",
   "servername" : "The VSCP daemon - tcpipsrv test",
   "classtypedb" : "/var/lib/vscp/vscpd/vscp_events.sqlite3",
@@ -23,6 +23,8 @@
     "bind": "",
     "host": "192.168.1.7",
     "port": 1883,
+    "user": "vscp",
+    "password": "secret",
     "mqtt-options": {
       "tcp-nodelay": true,
       "protocol-version": 311,
@@ -32,8 +34,6 @@
       "tls-ocsp-required": 0,
       "tls-use-os-certs": 0
     },
-    "user": "vscp",
-    "password": "secret",
     "clientid": "the-vscp-daemon",
     "publish-format": "json",
     "subscribe-format": "auto",
@@ -93,8 +93,10 @@
 
         "mqtt": {
           "bind": "",
-          "host": "test.mosquitto.org",
+          "host": "192.168.1.7",
           "port": 1883,
+          "user": "vscp",
+          "password": "secret",
           "mqtt-options": {
             "tcp-nodelay": true,
             "protocol-version": 311,
@@ -104,8 +106,6 @@
             "tls-ocsp-required": 0,
             "tls-use-os-certs": 0
           },
-          "user": "vscp",
-          "password": "secret",
           "clientid": "the-vscp-daemon tcpipsrv driver",
           "publish-format": "json",
           "subscribe-format": "auto",

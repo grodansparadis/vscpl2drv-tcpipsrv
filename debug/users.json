@@ -2,12 +2,12 @@
 	"users" : [
 		{
 			"name" : "admin",
-			"password" : "821C22DD764A1597769185793ECCC451;14AEF18317A279F9330B454198FB955D9304F9ADA230A495D66ED3AC7FF57063",
+			"password" : "2d1e4f91dae49cd08eaba2293e422273",
 			"fullname" : "Miss. Super user",
 			"rights" : "admin",
 			"remotes" : [
 				"+127.0.0.0/24",
-				"+192.168.0.0/16"                
+				"+192.168.0.0/16"
 			],
 			"events" : "",
 			"filter" : "",
@@ -16,18 +16,18 @@
 		},
 		{
 			"name" : "user",
-			"password" : "DEBB6FCDB2F3E9ACD87A86D358E04BE0;16A3E5D3A2FC7CEDCA3D9707530A3C5A122994AE52EE7EF7816B4A67E93F4F05",
+			"password" : "8c3088f1b27432344f14d82033749797",
 			"fullname" : "Mr. Sample user",
 			"rights" : "user",
 			"remotes" : "",
 			"events" : "",
 			"filter" : "",
-			"mask" : "",						
+			"mask" : "",
 			"note" : "A normal user. username='user' password='secret'"
 		},
 		{
 			"name" : "special1",
-			"password" : "7B79EF5A2532F9B46DFEC501BAD16C35;100943D7C2C1C9AE99AE4F2287241DA7EAC3969EDDED50AFF3FB4EAD33C1BAD9",
+			"password" : "52af526e3b91fbf9fe1f9447808b0902",
 			"fullname" : "Mrs. Special user",
 			"rights" : [
 				"user",
@@ -44,6 +44,17 @@
 			"filter" : "",
 			"mask" : "",
 			"note" : "A normal user. username='special1' password='secret'"
+		},
+    {
+			"name" : "vscp",
+			"password" : "8c92432a556d8dc0b97e9c34fc79725e",
+			"fullname" : "VSCP standard user",
+			"rights" : "user",
+			"remotes" : "",
+			"events" : "",
+			"filter" : "",
+			"mask" : "",
+			"note" : "A normal user. username='vscp' password='secret'"
 		}
 	]
 }

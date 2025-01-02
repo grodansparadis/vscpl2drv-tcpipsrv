@@ -7,7 +7,7 @@
 //
 // This file is part of the VSCP (http://www.vscp.org)
 //
-// Copyright (C) 2000-2024 Ake Hedman,
+// Copyright (C) 2000-2025 Ake Hedman,
 // Ake Hedman, the VSCP Project, <akhe@vscp.org>
 //
 // This file is distributed in the hope that it will be useful,
