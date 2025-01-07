@@ -253,6 +253,16 @@ class CTcpipSrv
     /// Path to user data base (must be present)
     std::string m_pathUsers;
 
+    /*
+      If true our own sent events will be received, if
+      false they will be masked. The clientid for
+      the channel is used to detect from home the events
+      originates. obid will be set to this clientid if
+      it is set to zero on send. The command "CHID" command 
+      can be used to get the clientid for the channel.
+    */
+    bool m_bReceiveOwnEvents;
+
     /// Response timeout
     uint32_t m_responseTimeout;
 

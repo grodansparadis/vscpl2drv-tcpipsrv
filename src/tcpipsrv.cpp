@@ -120,7 +120,7 @@ CTcpipSrv::CTcpipSrv()
   auto console = spdlog::stdout_color_mt("console");
   // Start out with level=info. Config may change this
   console->set_level(spdlog::level::debug);
-  console->set_pattern("[vscpl2drv-websrv: %c] [%^%l%$] %v");
+  console->set_pattern("[vscpl2drv-tcpipsrv: %c] [%^%l%$] %v");
   spdlog::set_default_logger(console);
 
   console->debug("Starting the vscpl2drv-tcpipsrv...");
@@ -136,6 +136,8 @@ CTcpipSrv::CTcpipSrv()
   m_path_to_log_file = "/var/log/vscp/vscpl2drv-tcpipsrv.log";
   m_max_log_size     = 5242880;
   m_max_log_files    = 7;
+
+  m_bReceiveOwnEvents = true; // Receive our own events
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -291,13 +293,27 @@ CTcpipSrv::doLoadConfig(std::string& path)
   }
 
   // VSCP key file
-  if (m_j_config.contains("key-file") && m_j_config["logging"].is_string()) {
+  if (m_j_config.contains("key-file") && m_j_config["key-file"].is_string()) {
     if (!readEncryptionKey(m_j_config["key-file"].get<std::string>())) {
       spdlog::warn("WARNING!!! Default key will be used.");
     }
   }
   else {
     spdlog::warn("WARNING!!! Default key will be used.");
+  }
+
+  // Receive own events
+  if (m_j_config.contains("receive-sent-events") && m_j_config["receive-sent-events"].is_boolean()) {
+    m_bReceiveOwnEvents = m_j_config["receive-sent-events"].get<bool>();
+    if (m_bReceiveOwnEvents) {
+      spdlog::info("Our sent event will be received.");
+    }
+    else {  
+      spdlog::info("Our sent events will be masked.");
+    }
+  }
+  else {
+    spdlog::info("Our sent event will be received.");
   }
 
   // Logging

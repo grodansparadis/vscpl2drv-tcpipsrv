@@ -34,7 +34,7 @@
       "tls-ocsp-required": 0,
       "tls-use-os-certs": 0
     },
-    "clientid": "the-vscp-daemon",
+    "clientid": "",
     "publish-format": "json",
     "subscribe-format": "auto",
     "qos": 1,
@@ -70,12 +70,12 @@
       "payload": "VSCP Daemon is down"
     },
       "subscribe" : [
-          "vscp/{{guid}}/#"
+        "vscp3/{{guid}}/#"
       ],
       "publish" : [
-          "vscp/{{guid}}/{{class}}/{{type}}",
-          "source/{{guid}}/{{class}}/{{type}}",
-          "DRAIN/{{guid}}/{{class}}/{{type}}"
+        "source/{{guid}}/{{class}}/{{type}}",
+        "vscp/{{guid}}/{{class}}/{{type}}",
+        "DRAIN/{{guid}}/{{class}}/{{type}}"
       ]
   },
 
@@ -106,7 +106,7 @@
             "tls-ocsp-required": 0,
             "tls-use-os-certs": 0
           },
-          "clientid": "the-vscp-daemon tcpipsrv driver",
+          "clientid": "",
           "publish-format": "json",
           "subscribe-format": "auto",
           "qos": 1,
@@ -140,7 +140,7 @@
           },
           "subscribe" : [
             {
-              "topic": "vscp/tcpipsrv/{{guid}}/#",
+              "topic": "ttt-pub/#",
               "qos": 0,
               "v5-options": 0,
               "format": "auto"
@@ -148,7 +148,13 @@
           ],
           "publish" : [
             {
-              "topic": "vscp/{{guid}}/{{class}}/{{type}}/{{nodeid}}",
+              "topic": "ttt-pub",
+              "qos": 1,
+              "retain": false,
+              "format": "json"
+            },
+            {
+              "topic": "ttt-pub2",
               "qos": 1,
               "retain": false,
               "format": "json"

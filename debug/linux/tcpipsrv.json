@@ -7,6 +7,7 @@
     "interface" : "9598",
     "encryption" : "aes256",
     "path-users" : "/home/akhe/development/VSCP/vscpl2drv-tcpipsrv/debug/users.json",
+    "receive-sent-events" : true,
     "tls" : {
         "certificate" : "",
         "certificate-chain" : "",
@@ -27,7 +28,7 @@
         "file-max-size" : 5242880,
         "file-max-files" : 7,
         "console-enable-log": true,
-        "console-log-level" : "debug",
+        "console-log-level" : "trace",
         "console-pattern" : "[vcpl2drv-tcpipsrv: %c] [%^%l%$] %v"
     } 
 }

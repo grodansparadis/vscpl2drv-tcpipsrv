@@ -289,6 +289,7 @@ The configuration file have the following format
   "interface" : "9598",
   "encryption" : "aes256",
   "path-users" : "/home/akhe/development/VSCP/vscpl2drv-tcpipsrv/debug/users.json",
+  "receive-sent-events" : true,
   "tls" : {
     "certificate" : "",
     "certificate-chain" : "",
@@ -363,6 +364,9 @@ Response and commands from/to the tcp/ip link server can be encrypted using AES-
 The user database is separated from the configuration file for security reasons and should be stored in a folder that is only readable by the user of the host, usually the VSCP daemon.
 
 The format for the user file is specified below.
+
+##### receive-sent-events
+If set to true events sent by the driver will be received by the driver itself. This is useful for debugging and testing and may be used to verify that events are sent correctly. If set to false sent events are not received by the driver. However the **CHKDATA** command will still show sent events in it's count. This behavior may be changed ion the future.
 
 ##### TLS/SSL
 Settings for TLS (Transport Layer Security), SSL.  Not used at the moment.

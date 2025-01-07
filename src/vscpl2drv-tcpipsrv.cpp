@@ -303,6 +303,7 @@ VSCPRead(long handle, vscpEvent* pEvent, unsigned long timeout)
         }
     }
 
+
     pthread_mutex_lock(&pdrvObj->m_mutexReceiveQueue);
     vscpEvent* pLocalEvent = pdrvObj->m_receiveList.front();
     pdrvObj->m_receiveList.pop_front();
