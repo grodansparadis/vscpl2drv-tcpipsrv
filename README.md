@@ -35,13 +35,13 @@ tbd
 
 ## How to build the driver on Linux
 
-- git clone --recurse-submodules -j8 https://github.com/grodansparadis/vscp.git
-- git clone --recurse-submodules -j8 https://github.com/grodansparadis/vscpl2drv-tcpipsrv.git development
+- git clone --recurse-submodules -j8 https://github.com/grodansparadis/vscpl2drv-tcpipsrv.git
 - sudo apt install pandoc           (comment: optional)
 - sudo apt install build-essential
 - sudo apt install cmake
 - sudo apt install libexpat-dev
 - sudo apt install libssl-dev
+- sudo apt install libcurl4-openssl-dev
 - sudo apt install rpm              (comment: only if you want to create install packages)
 - cd vscpl2drv-tcpipsrv
 - mkdir build
@@ -631,7 +631,7 @@ See information from Linux. The only difference is the disk location from where 
 
 ## Using the vscpl2drv-tcpipsrv driver
 
-Use the libvscpl2drv-tcpipsrv when you need a VSCP tcp/ip link interface to MQTT. Events you write to the driver subscribed topics will be sent over the tcp/ip channels. And events sent using the tcp/ip interface will be published on the configured publish topics.
+Use the libvscpl2drv-tcpipsrv when you need a VSCP tcp/ip link interface to MQTT. Events you write to the driver MQTT subscribed topics will be received over the open tcp/ip channels. And events sent using the tcp/ip interface will be published on the configured publish topics. The driver can publish and subscribe to multiple topics. 
 
 The [libvscpl2drv-tcpiplink](https://github.com/grodansparadis/vscpl2drv-tcpiplink#using-the-vscpl2drv-tcpiplink-driver) go through subscribe/publish topic techniques.
 
@@ -746,11 +746,11 @@ Copyright © 2000-2025 Ake Hedman, the VSCP Project, https://www.vscp.org
 ```
 
 ```bash
-user pass
+user admin
 pass secret
 ```
 
-Uf you get 
+If you get 
 
 ```
 +OK - Success
@@ -843,7 +843,21 @@ quit
 
 to terminate the session.
 
+### Communication between tcp/ip clients
+The original vscp daemon had a built in tcp/ip interface that was always activated.Event sent on one interface was automatically and by default sent to all other open interfaces. This is not the case with the VSCP tcp/ip link interface driver. Events sent on one interface is not sent on any other interface by defaults. If you want to send events on multiple interfaces you must enable this functionality explicitly.
 
+Everything you send on a tcp/ip interface is now transfered to the MQTT broker you have set up. This is a good thing as it makes it possible to use the VSCP daemon as a gateway to the VSCP network from other systems.The same is true for all events recived on the tcp/ip interface. They originate from one or more MQTT topics.
+
+So the only thing you have to do to receive events from oither clients is for one subscriber topic and one publish topic to be the same. If for example both subscribe to the topic "test" and both publish to the topic "test" they will be able to communicate with each other.
+
+But there is one problem with this and that is that the tcp/ip interface that sends the event will also receive it's own events. This is not always what you want. To avoid this you can use a special configuration flag "receive-sent-events" in your tcpipsrv.json configuration file. It has a default value that is true. That is sent event will also be reveived.  If you set this to false, events sent by the driver itself will not be received by the driver anymore. 
+
+However the **CHKDATA** command will still show sent events in it's count. This behavior may be changed ion the future.
+
+Receiving your own events can be good if one want to confirm taht they actually are sent and has been received by the broker. But there are MQTT protocol flags that can be used to certify this.
+
+### Using the driver with other software
+It is very easy to interface VSCP Level II drivers from other software. Full information is [here](https://grodansparadis.github.io/vscp/#/level_ii_drivers)
 
 
 ## Other sources with information
