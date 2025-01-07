@@ -6,3 +6,6 @@
 [submodule "third_party/crypto-algorithms"]
 	path = third_party/crypto-algorithms
 	url = https://github.com/B-Con/crypto-algorithms.git
+[submodule "third_party/vscp"]
+	path = third_party/vscp
+	url = https://github.com/grodansparadis/vscp.git
