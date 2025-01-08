@@ -36,4 +36,3 @@ config.log
 config.status
 autom4te.cache/
 config.h.in~
-.vscode
