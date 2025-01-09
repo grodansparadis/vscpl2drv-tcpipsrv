@@ -60,15 +60,15 @@
 #include "tcpipsrv.h"
 #include <hlo.h>
 #include <remotevariablecodes.h>
-#include <vscp.h>
 #include <vscp-class.h>
 #include <vscp-type.h>
+#include <vscp.h>
 #include <vscpdatetime.h>
 #include <vscphelper.h>
 #include <vscpremotetcpif.h>
 
-#include <nlohmann/json.hpp> // Needs C++11  -std=c++11
 #include <mustache.hpp>
+#include <nlohmann/json.hpp> // Needs C++11  -std=c++11
 
 #include <spdlog/async.h>
 #include <spdlog/sinks/rotating_file_sink.h>
@@ -303,12 +303,13 @@ CTcpipSrv::doLoadConfig(std::string& path)
   }
 
   // Receive own events
-  if (m_j_config.contains("receive-sent-events") && m_j_config["receive-sent-events"].is_boolean()) {
+  if (m_j_config.contains("receive-sent-events") &&
+      m_j_config["receive-sent-events"].is_boolean()) {
     m_bReceiveOwnEvents = m_j_config["receive-sent-events"].get<bool>();
     if (m_bReceiveOwnEvents) {
       spdlog::info("Our sent event will be received.");
     }
-    else {  
+    else {
       spdlog::info("Our sent events will be masked.");
     }
   }
@@ -947,8 +948,7 @@ CTcpipSrv::handleHLO(vscpEvent* pEvent)
 
   // Must be an operation
   if (!j["op"].is_string() || j["op"].is_null()) {
-    spdlog::error("HLO-command: Missing op [%s]",
-                                 j.dump().c_str());
+    spdlog::error("HLO-command: Missing op [%s]", j.dump().c_str());
     return false;
   }
 
@@ -1452,7 +1452,7 @@ CTcpipSrv::deleteVariable(vscpEventEx& ex, const json& json_reg)
     if (index >= m_j_config["users"].size()) {
       // Index to large
       spdlog::warn("index of array is to large [%u].",
-                                  index >= m_j_config["users"].size());
+                   index >= m_j_config["users"].size());
       j["result"] = VSCP_ERROR_INDEX_OOB;
       goto abort;
     }
@@ -1461,8 +1461,7 @@ CTcpipSrv::deleteVariable(vscpEventEx& ex, const json& json_reg)
   }
   else {
     j["result"] = VSCP_ERROR_MISSING;
-    spdlog::warn("Variable [%s] is unknown.",
-                                j.value("name", "").c_str());
+    spdlog::warn("Variable [%s] is unknown.", j.value("name", "").c_str());
   }
 
 abort:
@@ -1583,13 +1582,11 @@ CTcpipSrv::sendEventToClient(CClientItem* pClientItem, const vscpEvent* pEvent)
 {
   // Must be valid pointers
   if (NULL == pClientItem) {
-    spdlog::error(
-      "sendEventToClient - Pointer to clientitem is null");
+    spdlog::error("sendEventToClient - Pointer to clientitem is null");
     return false;
   }
   if (NULL == pEvent) {
-    spdlog::error(
-      "sendEventToClient - Pointer to event is null");
+    spdlog::error("sendEventToClient - Pointer to event is null");
     return false;
   }
 
@@ -1657,11 +1654,10 @@ CTcpipSrv::sendEventAllClients(const vscpEvent* pEvent)
     if (NULL != pClientItem) {
       if (m_j_config.contains("debug") && m_j_config["debug"].get<bool>()) {
         spdlog::debug("Send event to client [%s]",
-                                     pClientItem->m_strDeviceName.c_str());
+                      pClientItem->m_strDeviceName.c_str());
       }
       if (!sendEventToClient(pClientItem, pEvent)) {
-        spdlog::error(
-          "sendEventAllClients - Failed to send event");
+        spdlog::error("sendEventAllClients - Failed to send event");
       }
     }
   }
@@ -1685,12 +1681,12 @@ CTcpipSrv::startTcpipSrvThread(void)
   // Create the tcp/ip server data object
   m_ptcpipSrvObject = (tcpipListenThreadObj*)new tcpipListenThreadObj(this);
   if (NULL == m_ptcpipSrvObject) {
-    spdlog::error(
-      "Controlobject: Failed to allocate storage for tcp/ip.");
+    spdlog::error("Controlobject: Failed to allocate storage for tcp/ip.");
   }
 
   // Set the port to listen for connections on
-  m_ptcpipSrvObject->setListeningPort(m_j_config["interface"].get<std::string>());
+  m_ptcpipSrvObject->setListeningPort(
+    m_j_config["interface"].get<std::string>());
 
   if (pthread_create(&m_tcpipListenThread,
                      NULL,
@@ -1698,8 +1694,7 @@ CTcpipSrv::startTcpipSrvThread(void)
                      m_ptcpipSrvObject)) {
     delete m_ptcpipSrvObject;
     m_ptcpipSrvObject = NULL;
-    spdlog::error(
-      "Controlobject: Unable to start the tcp/ip listen thread.");
+    spdlog::error("Controlobject: Unable to start the tcp/ip listen thread.");
     return false;
   }
 
@@ -1844,8 +1839,7 @@ CTcpipSrv::readEncryptionKey(const std::string& path)
     return vscp_hexStr2ByteArray(m_vscp_key, 32, strStream.str().c_str());
   }
   catch (...) {
-    spdlog::error("Failed to read encryption key file [%s]",
-                                 m_path.c_str());
+    spdlog::error("Failed to read encryption key file [%s]", m_path.c_str());
     return false;
   }
 
