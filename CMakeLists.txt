@@ -2,7 +2,7 @@
 #
 # Build instructions for VSCP Works.
 #
-# Copyright (c) 2000-2024 Åke Hedman, the VSCP Project
+# Copyright (c) 2000-2025 Åke Hedman, the VSCP Project
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -42,8 +42,14 @@ if(NOT DEFINED PATCH_VERSION)
     SET(PATCH_VERSION "0")
 endif()
 
-# Prevent abi warnings in nlohmann
-SET(GCC_VSCP_COMPILE_FLAGS "-Wno-psabi")
+# Disable abi warnings (nlohmann)
+if(WIN32)
+add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>")
+add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
+else()
+SET(GCC_VSCP_COMPILE_FLAGS "-Wno-psabi -D WITH_SYSTEMD")
+endif()
+
 # Profiling
 #SET(GCC_VSCP_LINK_FLAGS    "-lgcov")
 

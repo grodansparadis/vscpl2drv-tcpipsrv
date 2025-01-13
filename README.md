@@ -121,7 +121,7 @@ Build as usual but use
 cd vscpl2drv-tcpipsrv
 mkdir build
 cd build
-cmake .. -CMAKE_BUILD_TYPE=Release|Debug -DCMAKE_TOOLCHAIN_FILE=E:\src\vcpkg\scripts\buildsystems\vcpkg.cmake -DVSCP_PATH=path-vscp-repository
+cmake .. -CMAKE_BUILD_TYPE=Release -DVCPKG_ROOT=G:/vcpkg/ -DCMAKE_TOOLCHAIN_FILE=G:\vcpkg\scripts\buildsystems\vcpkg.cmake --build .
 ```
 
 The **CMAKE_TOOLCHAIN_FILE** path may be different in your case
