@@ -62,7 +62,7 @@ Install of _pandoc_ is only needed if man pages needs to be rebuilt. This is nor
 You need the vcpkg package manager on windows. Install it with
 
 ```bash
-git clone https://github.com/microsoft/vcpkg.git
+git clone -recurse-submodules https://github.com/microsoft/vcpkg.git
 ```
 
 then go into the folder
