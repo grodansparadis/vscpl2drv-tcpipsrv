@@ -25,6 +25,12 @@
 #include "StdAfx.h"
 #endif
 
+#include <fstream>
+#include <iostream>
+#include <list>
+#include <map>
+#include <string>
+
 #include <limits.h>
 #include <pthread.h>
 #include <semaphore.h>
@@ -74,12 +80,6 @@
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
-
-#include <fstream>
-#include <iostream>
-#include <list>
-#include <map>
-#include <string>
 
 // https://github.com/nlohmann/json
 using json = nlohmann::json;
@@ -260,7 +260,7 @@ CTcpipSrv::close(void)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// loadConfiguration
+// doLoadConfig
 //
 
 bool
@@ -1798,13 +1798,16 @@ CTcpipSrv::generateSessionId(const char* pKey, char* psid)
   char buf[8193];
 
   // Check pointers
-  if (NULL == pKey)
+  if (NULL == pKey) {
     return false;
-  if (NULL == psid)
+  }
+  if (NULL == psid) {
     return false;
-
-  if (strlen(pKey) > 256)
+  }
+  // Check key length
+  if (strlen(pKey) > 256) {
     return false;
+  }
 
   // Generate a random session ID
   time_t t;

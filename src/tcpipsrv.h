@@ -256,7 +256,7 @@ class CTcpipSrv
     /*
       If true our own sent events will be received, if
       false they will be masked. The clientid for
-      the channel is used to detect from home the events
+      the channel is used to detect from whom the events
       originates. obid will be set to this clientid if
       it is set to zero on send. The command "CHID" command 
       can be used to get the clientid for the channel.

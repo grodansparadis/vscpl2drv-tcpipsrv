@@ -2,7 +2,7 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "taskName": "build vscpl2drv-tcpipsrv",
+            "label": "build vscpl2drv-tcpipsrv",
             "type": "shell",
             "command": "cd build; cmake .. -DCMAKE_BUILD_TYPE=Debug; make",
             "args": [],
@@ -13,7 +13,7 @@
             "problemMatcher": "$gcc"
         },
         {
-            "taskName": "clean & build vscpl2drv-tcpipsrv",
+            "label": "clean & build vscpl2drv-tcpipsrv",
             "type": "shell",
             "command": "mkdir build; cd build; rm CMakeCache.txt; cmake --clean-first .. -DCMAKE_BUILD_TYPE=Debug; make clean; make",
             "args": [],
@@ -35,7 +35,7 @@
               }
         },
         {
-            "taskName": "build package",
+            "label": "build package",
             "type": "shell",
             "command": "cd build; cpack",
             "args": [],
@@ -45,4 +45,5 @@
             },
             "problemMatcher": "$gcc"
         }
+      ]
 }
