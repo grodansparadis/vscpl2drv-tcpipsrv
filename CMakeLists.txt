@@ -22,8 +22,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 #
-# VSCP_PATH - set to path to local vscp repository. Default is "../vscp". Set with
-# -DVSCP_PATH="path"
 #
 
 cmake_minimum_required(VERSION 3.5)
@@ -33,7 +31,7 @@ set(PACKAGE_AUTHOR "Ake Hedman, the VSCP Project")
 
 # Version settings
 if(NOT DEFINED MAJOR_VERSION)
-    SET(MAJOR_VERSION "15")
+    SET(MAJOR_VERSION "1")
 endif()
 if(NOT DEFINED MINOR_VERSION)
     SET(MINOR_VERSION "0")
@@ -82,7 +80,7 @@ endif()
 option(USE_SSL "Use SSL" TRUE)
 
 ## --- C++11 build flags ---
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
 
@@ -109,14 +107,16 @@ endif()
 
 if(WIN32)
 	add_definitions(-D_CRT_SECURE_NO_WARNINGS)
-    add_definitions(-DWIN32_LEAN_AND_MEANS)
-    add_definitions(-DOPENSSL_API_1_1)
-    add_definitions(-D_POSIX_C_SOURCE)    
-    add_definitions(-DVCPKG_TARGET_TRIPLET=x64-windows)
-    set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
-    set(LIBS_SYSTEM ws2_32)
+  add_definitions(-DWIN32_LEAN_AND_MEANS)
+  add_definitions(-DOPENSSL_API_1_1)
+  add_definitions(-D_POSIX_C_SOURCE)    
+  add_definitions(-DVCPKG_TARGET_TRIPLET=x64-windows)
+  add_definitions(-DMG_TLS=MG_TLS_OPENSSL)
+  set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
+  set(LIBS_SYSTEM ws2_32)
 elseif(UNIX)
   set(LIBS_SYSTEM c stdc++)
+  add_definitions(-DMG_TLS=MG_TLS_OPENSSL)
 endif()
 
 #   ===========================  cpack  ===========================

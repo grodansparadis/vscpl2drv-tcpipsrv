@@ -164,6 +164,7 @@ CTcpipSrv::~CTcpipSrv()
 bool
 CTcpipSrv::open(std::string& path, const uint8_t* pguid)
 {
+  // Must have a valid GUID
   if (NULL == pguid) {
     return false;
   }
@@ -171,7 +172,7 @@ CTcpipSrv::open(std::string& path, const uint8_t* pguid)
   // Set GUID
   m_guid.getFromArray(pguid);
 
-  // Save path to config file
+  // Save path for config file
   m_path = path;
 
   // Init pool
@@ -445,54 +446,124 @@ CTcpipSrv::doLoadConfig(std::string& path)
                     "Defaults will be used.");
     }
 
+    // * * * CONSOLE LOGGING * * *
+
+    // Logging: console-logging-enable
+    if (j.contains("console-enable-log")) {
+      try {
+        m_bConsoleLogEnable = j["console-enable-log"].get<bool>();
+      }
+      catch (const std::exception& ex) {
+        spdlog::error(
+          "ReadConfig:Failed to read 'console-enable-log' Error='{}'",
+          ex.what());
+      }
+      catch (...) {
+        spdlog::error("ReadConfig:Failed to read 'console-enable-log' due to "
+                      "unknown error.");
+      }
+    }
+    else {
+      spdlog::debug("ReadConfig: Failed to read LOGGING 'console-enable-log' "
+                    "Defaults will be used.");
+    }
+
+    // Logging: console-log-level
+    if (j.contains("console-log-level")) {
+      std::string str;
+      try {
+        str = j["console-log-level"].get<std::string>();
+      }
+      catch (const std::exception& ex) {
+        spdlog::error("[vscpl2drv-websocksrv]Failed to read "
+                      "'console-log-level' Error='{0}'",
+                      ex.what());
+      }
+      catch (...) {
+        spdlog::error("[vscpl2drv-websocksrv]Failed to read "
+                      "'console-log-level' due to unknown error.");
+      }
+      vscp_makeLower(str);
+      if (std::string::npos != str.find("off")) {
+        m_consoleLogLevel = spdlog::level::off;
+      }
+      else if (std::string::npos != str.find("critical")) {
+        m_consoleLogLevel = spdlog::level::critical;
+      }
+      else if (std::string::npos != str.find("err")) {
+        m_consoleLogLevel = spdlog::level::err;
+      }
+      else if (std::string::npos != str.find("warn")) {
+        m_consoleLogLevel = spdlog::level::warn;
+      }
+      else if (std::string::npos != str.find("info")) {
+        m_consoleLogLevel = spdlog::level::info;
+      }
+      else if (std::string::npos != str.find("debug")) {
+        m_consoleLogLevel = spdlog::level::debug;
+      }
+      else if (std::string::npos != str.find("trace")) {
+        m_consoleLogLevel = spdlog::level::trace;
+      }
+      else {
+        spdlog::error(
+          "ReadConfig: LOGGING 'console-log-level' has invalid value "
+          "[{}]. Default value used.",
+          str);
+      }
+
+    } // Logging
+    else {
+      spdlog::error("ReadConfig: No logging has been setup.");
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+    //                          Setup logger
+    ///////////////////////////////////////////////////////////////////////////
+
+    // Console log
+    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+    if (m_bConsoleLogEnable) {
+      console_sink->set_level(m_consoleLogLevel);
+      console_sink->set_pattern(m_consoleLogPattern);
+    }
+    else {
+      // If disabled set to off
+      console_sink->set_level(spdlog::level::off);
+    }
+
+    // auto rotating =
+    // std::make_shared<spdlog::sinks::rotating_file_sink_mt>("log_filename",
+    // 1024*1024, 5, false);
+    auto rotating_file_sink =
+      std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+        m_path_to_log_file.c_str(),
+        m_max_log_size,
+        m_max_log_files);
+
+    if (m_bEnableFileLog) {
+      rotating_file_sink->set_level(m_fileLogLevel);
+      rotating_file_sink->set_pattern(m_fileLogPattern);
+    }
+    else {
+      // If disabled set to off
+      rotating_file_sink->set_level(spdlog::level::off);
+    }
+
+    std::vector<spdlog::sink_ptr> sinks{ console_sink, rotating_file_sink };
+    auto logger = std::make_shared<spdlog::async_logger>(
+      "logger",
+      sinks.begin(),
+      sinks.end(),
+      spdlog::thread_pool(),
+      spdlog::async_overflow_policy::block);
+
+    spdlog::register_logger(logger);
+    spdlog::set_default_logger(logger);
   } // Logging
   else {
-    spdlog::error("ReadConfig: No logging has been setup.");
+    spdlog::info("ReadConfig: No logging has been setup.");
   }
-
-  ///////////////////////////////////////////////////////////////////////////
-  //                          Setup logger
-  ///////////////////////////////////////////////////////////////////////////
-
-  // Console log
-  auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-  if (m_bConsoleLogEnable) {
-    console_sink->set_level(m_consoleLogLevel);
-    console_sink->set_pattern(m_consoleLogPattern);
-  }
-  else {
-    // If disabled set to off
-    console_sink->set_level(spdlog::level::off);
-  }
-
-  // auto rotating =
-  // std::make_shared<spdlog::sinks::rotating_file_sink_mt>("log_filename",
-  // 1024*1024, 5, false);
-  auto rotating_file_sink =
-    std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-      m_path_to_log_file.c_str(),
-      m_max_log_size,
-      m_max_log_files);
-
-  if (m_bEnableFileLog) {
-    rotating_file_sink->set_level(m_fileLogLevel);
-    rotating_file_sink->set_pattern(m_fileLogPattern);
-  }
-  else {
-    // If disabled set to off
-    rotating_file_sink->set_level(spdlog::level::off);
-  }
-
-  std::vector<spdlog::sink_ptr> sinks{ console_sink, rotating_file_sink };
-  auto logger = std::make_shared<spdlog::async_logger>(
-    "logger",
-    sinks.begin(),
-    sinks.end(),
-    spdlog::thread_pool(),
-    spdlog::async_overflow_policy::block);
-  // The separate sub loggers will handle trace levels
-  logger->set_level(spdlog::level::trace);
-  spdlog::register_logger(logger);
 
   // ------------------------------------------------------------------------
 
@@ -550,8 +621,8 @@ CTcpipSrv::doLoadConfig(std::string& path)
                     ex.what());
     }
     catch (...) {
-      spdlog::error(
-        "ReadConfig: Failed to read 'response-timeout' due to unknown error.");
+      spdlog::error("ReadConfig: Failed to read 'response-timeout' due to "
+                    "unknown error.");
     }
   }
   else {
@@ -814,13 +885,13 @@ CTcpipSrv::doLoadConfig(std::string& path)
                       ex.what());
       }
       catch (...) {
-        spdlog::error(
-          "ReadConfig:Failed to read 'protocol-version' due to unknown error.");
+        spdlog::error("ReadConfig:Failed to read 'protocol-version' due to "
+                      "unknown error.");
       }
     }
     else {
-      spdlog::debug(
-        "ReadConfig: Failed to read 'protocol-version' Defaults will be used.");
+      spdlog::debug("ReadConfig: Failed to read 'protocol-version' Defaults "
+                    "will be used.");
     }
 
     // Short trust
