@@ -30,6 +30,32 @@ set(PACKAGE_AUTHOR "Ake Hedman, the VSCP Project")
 
 
 # Version settings
+# If a version header exists in src, parse it and set CMake variables
+set(VERSION_HEADER "${PROJECT_SOURCE_DIR}/src/version.h")
+if(EXISTS "${VERSION_HEADER}")
+  file(READ "${VERSION_HEADER}" _ver_h)
+  # MAJOR_VERSION
+  string(REGEX MATCH "#define[ \t]+MAJOR_VERSION[ \t]+([0-9]+)" _m "${_ver_h}")
+  if(_m)
+    string(REGEX REPLACE ".*#define[ \t]+MAJOR_VERSION[ \t]+([0-9]+).*" "\\1" MAJOR_VERSION "${_ver_h}")
+  endif()
+  # MINOR_VERSION
+  string(REGEX MATCH "#define[ \t]+MINOR_VERSION[ \t]+([0-9]+)" _m "${_ver_h}")
+  if(_m)
+    string(REGEX REPLACE ".*#define[ \t]+MINOR_VERSION[ \t]+([0-9]+).*" "\\1" MINOR_VERSION "${_ver_h}")
+  endif()
+  # RELEASE_VERSION -> map to PATCH_VERSION
+  string(REGEX MATCH "#define[ \t]+RELEASE_VERSION[ \t]+([0-9]+)" _m "${_ver_h}")
+  if(_m)
+    string(REGEX REPLACE ".*#define[ \t]+RELEASE_VERSION[ \t]+([0-9]+).*" "\\1" PATCH_VERSION "${_ver_h}")
+  endif()
+  # BUILD_VERSION (optional extra)
+  string(REGEX MATCH "#define[ \t]+BUILD_VERSION[ \t]+([0-9]+)" _m "${_ver_h}")
+  if(_m)
+    string(REGEX REPLACE ".*#define[ \t]+BUILD_VERSION[ \t]+([0-9]+).*" "\\1" BUILD_VERSION "${_ver_h}")
+  endif()
+endif()
+
 if(NOT DEFINED MAJOR_VERSION)
     SET(MAJOR_VERSION "1")
 endif()
