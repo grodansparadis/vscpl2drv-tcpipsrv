@@ -70,5 +70,5 @@ jobs:
     - name: Pack
       working-directory: ${{github.workspace}}/build
       shell: bash
-      # Build packages deb/rpm/tggz.
+      # Build packages deb/rpm/tgz.
       run: sudo cpack .
