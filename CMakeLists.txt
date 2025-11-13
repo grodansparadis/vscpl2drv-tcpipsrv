@@ -215,14 +215,16 @@ find_package(OpenSSL REQUIRED)
 # curl
 find_package(CURL REQUIRED)
 
-# Windows Libs
+# Expat XML library
 if (WIN32)
-  #find_package(pthreads REQUIRED)
-
-  # Expat C library
   find_package(expat CONFIG REQUIRED)
 else()
+  find_package(EXPAT REQUIRED)
+endif()
 
+# Windows specific libs
+if (WIN32)
+  #find_package(pthreads REQUIRED)
 endif()
 
 # Set sockettcp build flags
