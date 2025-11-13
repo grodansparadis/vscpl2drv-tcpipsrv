@@ -6,12 +6,30 @@
   * **Available for**: Linux, Windows
   * **Driver Linux**: libvscpl2drv-tcpipsrv.so
   * **Driver Windows**: vscpl2drv-tcpipsrv.dll
+  * **Driver MacOS**: vscpl2drv-tcpipsrv.dylib
 
----
+![](./docs/images/xmap-vscpl2drv-websocksrv.png)
 
-The tcp/ip driver act as a tcp/ip server for the [VSCP tcp/ip link protocol](https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_over_tcp_ip). Users or IoT/m2m devices with different privileges and rights can connect to the exported interface and send/receive VSCP events.
+## Introduction
+
+The tcp/ip srv driver act as a tcp/ip server for the [VSCP tcp/ip link protocol](https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_over_tcp_ip). Users or IoT/m2m devices with different privileges and rights can connect to the exported interface and send/receive VSCP events.
+
+* Documentation is available [here](https://grodansparadis.github.io/vscpl2drv-tcpipsrv)
+* Repository for the module is [here](https://github.com/grodansparadis/vscpl2drv-tcpipsrv)
 
 The VSCP tcp/ip link protocol is described [here](https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_tcpiplink).
+
+The level II driver API is [described here](https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_driver_interfaces). With the simple interface API the VSCP level II driver uses (described above) it is also easy to use it with other software as a component.
+
+The connection can be secured with TLS/SSL as well as a simple user authentication mechanism.
+
+## Other sources of information
+
+ * The VSCP site - https://www.vscp.org
+ * The VSCP document site - https://docs.vscp.org/
+ * VSCP discussions - https://github.com/grodansparadis/vscp/discussions
+
+
 
 With the simple interface the driver uses ([described here](https://grodansparadis.github.io/vscp/#/level_ii_drivers)) it is also possible to use it with other software as a component.
 
