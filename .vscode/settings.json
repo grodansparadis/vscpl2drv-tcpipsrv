@@ -73,5 +73,6 @@
         "CMAKE_TOOLCHAIN_FILE" : "E:/development/vcpkg/scripts/buildsystems/vcpkg.cmake"
     },
     "cmake.generator": "Visual Studio 16 2019",
-    "cSpell.language": "sv,en"
+    "cSpell.language": "sv,en",
+    "idf.pythonInstallPath": "/home/akhe/.platformio/penv/bin/python"
 }

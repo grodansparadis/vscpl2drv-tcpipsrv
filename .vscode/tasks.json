@@ -79,5 +79,5 @@
             },
             "problemMatcher": ["$msCompile", "$gcc"]
         }
-    ]
+      ]
 }
