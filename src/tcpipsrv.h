@@ -367,8 +367,15 @@ class CTcpipSrv
     /*!
         Event object to indicate that there is an event in the output queue
      */
-    sem_t m_semSendQueue;
+    
+
+#ifdef WIN32
+    HANDLE m_semReceiveQueue;
+    HANDLE m_semSendQueue;
+#else    
     sem_t m_semReceiveQueue;
+    sem_t m_semSendQueue;
+#endif
 
     // Mutex to protect the output queue
     pthread_mutex_t m_mutexSendQueue;

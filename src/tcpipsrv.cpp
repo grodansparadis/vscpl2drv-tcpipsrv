@@ -103,8 +103,13 @@ CTcpipSrv::CTcpipSrv()
 
   m_responseTimeout = TCPIP_DEFAULT_INNER_RESPONSE_TIMEOUT;
 
+#ifdef WIN32
+  m_semSendQueue = CreateSemaphore(NULL, 0, 0x7fffffff, NULL);
+  m_semReceiveQueue = CreateSemaphore(NULL, 0, 0x7fffffff, NULL);
+#else
   sem_init(&m_semSendQueue, 0, 0);
   sem_init(&m_semReceiveQueue, 0, 0);
+#endif
 
   pthread_mutex_init(&m_mutexSendQueue, NULL);
   pthread_mutex_init(&m_mutexReceiveQueue, NULL);
@@ -148,8 +153,13 @@ CTcpipSrv::~CTcpipSrv()
 {
   close();
 
+#ifdef WIN32
+  CloseHandle(m_semSendQueue);
+  CloseHandle(m_semReceiveQueue);
+#else
   sem_destroy(&m_semSendQueue);
   sem_destroy(&m_semReceiveQueue);
+#endif  
 
   pthread_mutex_destroy(&m_mutexSendQueue);
   pthread_mutex_destroy(&m_mutexReceiveQueue);
@@ -749,7 +759,7 @@ CTcpipSrv::doLoadConfig(std::string& path)
     // Verify depth
     if (j.contains("verify_depth")) {
       try {
-        m_tls_verify_depth = j["verify_depth"].get<uint16_t>();
+        m_tls_verify_depth = j["verify_depth"].get<uint8_t>();
       }
       catch (const std::exception& ex) {
         spdlog::error("ReadConfig: Failed to read 'verify_depth' Error='{}'",
@@ -807,7 +817,7 @@ CTcpipSrv::doLoadConfig(std::string& path)
     // Protocol version
     if (j.contains("protocol-version")) {
       try {
-        m_tls_protocol_version = j["protocol-version"].get<uint16_t>();
+        m_tls_protocol_version = j["protocol-version"].get<uint8_t>();
       }
       catch (const std::exception& ex) {
         spdlog::error("ReadConfig:Failed to read 'protocol-version' Error='{}'",
@@ -1530,7 +1540,11 @@ CTcpipSrv::eventExToReceiveQueue(vscpEventEx& ex)
       pthread_mutex_lock(&m_mutexReceiveQueue);
       m_receiveList.push_back(pev);
       pthread_mutex_unlock(&m_mutexReceiveQueue);
+#ifdef WIN32
+      ReleaseSemaphore(m_semReceiveQueue, 1, NULL);
+#else
       sem_post(&m_semReceiveQueue);
+#endif
     }
     else {
       vscp_deleteEvent(pev);
@@ -1552,7 +1566,12 @@ CTcpipSrv::addEvent2SendQueue(const vscpEvent* pEvent)
 {
   pthread_mutex_lock(&m_mutexSendQueue);
   m_sendList.push_back((vscpEvent*)pEvent);
-  sem_post(&m_semSendQueue);
+#ifdef WIN32
+    ReleaseSemaphore(m_semSendQueue, 1, NULL);
+#else
+    sem_post(&m_semSendQueue);
+#endif
+  
   pthread_mutex_unlock(&m_mutexSendQueue);
   return true;
 }
@@ -1569,7 +1588,11 @@ CTcpipSrv::addEvent2ReceiveQueue(const vscpEvent* pEvent)
   pthread_mutex_lock(&m_mutexReceiveQueue);
   m_receiveList.push_back((vscpEvent*)pEvent);
   pthread_mutex_unlock(&m_mutexReceiveQueue);
+#ifdef WIN32
+  ReleaseSemaphore(m_semReceiveQueue, 1, NULL);
+#else
   sem_post(&m_semReceiveQueue);
+#endif
   return true;
 }
 
@@ -1624,8 +1647,12 @@ CTcpipSrv::sendEventToClient(CClientItem* pClientItem, const vscpEvent* pEvent)
     pthread_mutex_lock(&pClientItem->m_mutexClientInputQueue);
     pClientItem->m_clientInputQueue.push_back(pnewvscpEvent);
     pthread_mutex_unlock(&pClientItem->m_mutexClientInputQueue);
+#ifdef WIN32
+    ReleaseSemaphore(&pClientItem->m_semClientInputQueue, 1, NULL);
+#else
     sem_post(&pClientItem->m_semClientInputQueue);
-  }
+#endif
+  } 
 
   return true;
 }

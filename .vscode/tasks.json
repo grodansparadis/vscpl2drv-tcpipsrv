@@ -2,47 +2,82 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "taskName": "build vscpl2drv-tcpipsrv",
+            "label": "build vscpl2drv-tcpipsrv",
             "type": "shell",
-            "command": "cd build; cmake .. -DCMAKE_BUILD_TYPE=Debug; make",
-            "args": [],
+            "windows": {
+                "command": ".\\build-windows.bat"
+            },
+            "linux": {
+                "command": "./build-unix.sh"
+            },
+            "osx": {
+                "command": "./build-unix.sh"
+            },
             "group": {
                 "kind": "build",
-                "isDefault": false
+                "isDefault": true
             },
-            "problemMatcher": "$gcc"
+            "problemMatcher": ["$msCompile", "$gcc"]
         },
         {
-            "taskName": "clean & build vscpl2drv-tcpipsrv",
+            "label": "clean & build vscpl2drv-tcpipsrv",
             "type": "shell",
-            "command": "mkdir build; cd build; rm CMakeCache.txt; cmake --clean-first .. -DCMAKE_BUILD_TYPE=Debug; make clean; make",
-            "args": [],
+            "windows": {
+                "command": "powershell.exe",
+                "args": [
+                    "-Command",
+                    "if (Test-Path build) { Remove-Item -Recurse -Force build }; .\\build-windows.bat"
+                ]
+            },
+            "linux": {
+                "command": "bash",
+                "args": [
+                    "-c",
+                    "rm -rf build && ./build-unix.sh"
+                ]
+            },
+            "osx": {
+                "command": "bash",
+                "args": [
+                    "-c",
+                    "rm -rf build && ./build-unix.sh"
+                ]
+            },
             "group": {
                 "kind": "build",
                 "isDefault": false
             },
-            "problemMatcher": {
-                "owner": "cpp",
-                "fileLocation": ["relative", "${workspaceFolder}"],
-                "pattern": {
-                  "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
-                  "file": 1,
-                  "line": 2,
-                  "column": 3,
-                  "severity": 4,
-                  "message": 5
-                }
-              }
+            "problemMatcher": ["$msCompile", "$gcc"]
         },
         {
-            "taskName": "build package",
+            "label": "build package",
             "type": "shell",
-            "command": "cd build; cpack",
-            "args": [],
+            "windows": {
+                "command": "powershell.exe",
+                "args": [
+                    "-Command",
+                    "cd build; cpack"
+                ]
+            },
+            "linux": {
+                "command": "bash",
+                "args": [
+                    "-c",
+                    "cd build && cpack"
+                ]
+            },
+            "osx": {
+                "command": "bash",
+                "args": [
+                    "-c",
+                    "cd build && cpack"
+                ]
+            },
             "group": {
                 "kind": "build",
                 "isDefault": false
             },
-            "problemMatcher": "$gcc"
+            "problemMatcher": ["$msCompile", "$gcc"]
         }
+    ]
 }

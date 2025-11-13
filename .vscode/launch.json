@@ -5,11 +5,32 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "(gdb) vscp w/ driver",
+            "name": "(gdb) vscpd w/ driver",
             "type": "cppdbg",
             "request": "launch",
             "program": "/home/akhe/development/VSCP/vscp/build/vscpd",
             "args": ["-s","-c/home/akhe/development/VSCP/vscpl2drv-tcpipsrv/debug/linux/vscpd.json"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/../vscp",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "build vscpl2drv-tcpipsrv",
+            "miDebuggerPath": "/usr/bin/gdb"
+        },
+        {
+            "name": "(gdb) testapp w/ driver",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/home/akhe/development/VSCP/vscpl2drv-tcpipsrv/build/testapp/testapp",
+            "args": ["-s","-c/home/akhe/development/VSCP/vscpl2drv-tcpipsrv/debug/linux/v2logger.json"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/../vscp",
             "environment": [],
