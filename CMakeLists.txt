@@ -180,10 +180,11 @@ IF(EXISTS "${CMAKE_ROOT}/Modules/CPack.cmake")
   SET(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 
   IF(NOT DEFINED WIN32)
-    SET(CPACK_DEBIAN_PACKAGE_DEPENDS " libexpat-dev, libssl-dev libcurl4-openssl-dev")
+    SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libexpat-dev, libssl-dev, libcurl4-openssl-dev")
     SET(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
     SET(CPACK_DEBIAN_PACKAGE_SECTION "network")
     SET(CPACK_DEBIAN_ARCHITECTURE ${CMAKE_SYSTEM_PROCESSOR})
+    SET(CPACK_RPM_PACKAGE_REQUIRES "expat-devel, openssl-devel, libcurl-devel")
   ENDIF()
 
   SET(CPACK_COMPONENTS_ALL Libraries ApplicationData)
@@ -208,6 +209,9 @@ find_package(Threads REQUIRED)
 
 #openssl
 find_package(OpenSSL REQUIRED)
+
+# curl
+find_package(CURL REQUIRED)
 
 # Windows Libs
 if (WIN32)
@@ -282,6 +286,8 @@ if (WIN32)
     ./third_party/vscp/third_party/nlohmann/include
     ./third_party/vscp/third_party/mustache/
     ./third_party/vscp/third_party/spdlog/include/
+    ./third_party/vscp/third_party/maddy/include/
+    ./third_party/crypto-algorithms/
     ${PThreads4W_INCLUDE_DIR}
     ${CMAKE_BINARY_DIR}
     ${OPENSSL_INCLUDE_DIR}
@@ -307,6 +313,7 @@ if (WIN32)
     OpenSSL::SSL 
     OpenSSL::Crypto
     OpenSSL::SSL OpenSSL::Crypto
+    CURL::libcurl
     expat::expat
   )
         
@@ -317,6 +324,7 @@ else()
     Threads::Threads
     OpenSSL::SSL 
     OpenSSL::Crypto
+    CURL::libcurl
     ${EXPAT_LIBRARIES}
   )
 endif()
@@ -327,7 +335,7 @@ if(WIN32)
   install(TARGETS vscpl2drv-tcpipsrv
           RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
   )
-  # Dependencies
+  # Dependencies - includes OpenSSL, CURL, PThreads, expat, zlib DLLs
   file(GLOB deps_files "${CMAKE_BINARY_DIR}/Release/*.dll")
   install(FILES ${deps_files} DESTINATION ${CMAKE_INSTALL_BINDIR})
   # LICENSE
