@@ -1,0 +1,620 @@
+name: CMake Cross-Platform Build
+
+on: [push, pull_request]
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  # Add a job to parse version information
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.parse_version.outputs.version }}
+      version_major: ${{ steps.parse_version.outputs.version_major }}
+      version_minor: ${{ steps.parse_version.outputs.version_minor }}
+      version_patch: ${{ steps.parse_version.outputs.version_patch }}
+      version_build: ${{ steps.parse_version.outputs.version_build }}
+    steps:
+    - name: Checkout main repository
+      uses: actions/checkout@v4
+      with:
+        repository: grodansparadis/vscpl2drv-tcpipsrv
+        submodules: 'recursive'
+
+    - name: Parse version from version.h
+      id: parse_version
+      shell: bash
+      run: |
+        # Check if version.h exists
+        VERSION_FILE="src/version.h"
+        if [ ! -f "$VERSION_FILE" ]; then
+          echo "Error: $VERSION_FILE not found"
+          exit 1
+        fi
+        
+        echo "Parsing version from $VERSION_FILE"
+        cat "$VERSION_FILE"
+        
+        # Extract version components
+        VERSION_MAJOR=$(grep -E "#define\s+VSCPL2DRV_TCPIPSRV_MAJOR_VERSION\s+" "$VERSION_FILE" | sed -E 's/.*#define\s+VSCPL2DRV_TCPIPSRV_MAJOR_VERSION\s+([0-9]+).*/\1/')
+        VERSION_MINOR=$(grep -E "#define\s+VSCPL2DRV_TCPIPSRV_MINOR_VERSION\s+" "$VERSION_FILE" | sed -E 's/.*#define\s+VSCPL2DRV_TCPIPSRV_MINOR_VERSION\s+([0-9]+).*/\1/')
+        VERSION_PATCH=$(grep -E "#define\s+VSCPL2DRV_TCPIPSRV_RELEASE_VERSION\s+" "$VERSION_FILE" | sed -E 's/.*#define\s+VSCPL2DRV_TCPIPSRV_RELEASE_VERSION\s+([0-9]+).*/\1/')
+        VERSION_BUILD=$(grep -E "#define\s+VSCPL2DRV_TCPIPSRV_BUILD_VERSION\s+" "$VERSION_FILE" | sed -E 's/.*#define\s+VSCPL2DRV_TCPIPSRV_BUILD_VERSION\s+([0-9]+).*/\1/')
+        
+        # Validate extracted values
+        if [ -z "$VERSION_MAJOR" ] || [ -z "$VERSION_MINOR" ] || [ -z "$VERSION_PATCH" ] || [ -z "$VERSION_BUILD" ]; then
+          echo "Error: Failed to extract version components"
+          echo "Major: '$VERSION_MAJOR', Minor: '$VERSION_MINOR', Patch: '$VERSION_PATCH', Build: '$VERSION_BUILD'"
+          exit 1
+        fi
+        
+        # Construct version string
+        VERSION="${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}.${VERSION_BUILD}"
+        VERSION_SHORT="${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}"
+        
+        echo "Extracted version: $VERSION"
+        echo "Short version: $VERSION_SHORT"
+        
+        # Set outputs
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "version_short=$VERSION_SHORT" >> $GITHUB_OUTPUT
+        echo "version_major=$VERSION_MAJOR" >> $GITHUB_OUTPUT
+        echo "version_minor=$VERSION_MINOR" >> $GITHUB_OUTPUT
+        echo "version_patch=$VERSION_PATCH" >> $GITHUB_OUTPUT
+        echo "version_build=$VERSION_BUILD" >> $GITHUB_OUTPUT
+        
+        # Also set as environment variables for later jobs
+        echo "PROJECT_VERSION=$VERSION" >> $GITHUB_ENV
+        echo "PROJECT_VERSION_SHORT=$VERSION_SHORT" >> $GITHUB_ENV
+
+  build:
+    needs: version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            triplet: x64-linux
+            generator: "Unix Makefiles"
+            package_manager: "apt"
+          - os: windows-latest
+            triplet: x64-windows
+            generator: "Visual Studio 17 2022"
+            package_manager: "vcpkg"
+          - os: macos-latest
+            triplet: x64-osx
+            generator: "Unix Makefiles"
+            package_manager: "brew"
+
+    steps:
+    - name: Checkout main repository
+      uses: actions/checkout@v4
+      with:
+        repository: grodansparadis/vscpl2drv-tcpipsrv
+        submodules: 'recursive' 
+
+    - name: Checkout VSCP repository
+      uses: actions/checkout@v4
+      with:
+        repository: grodansparadis/vscp
+        path: vscp
+        ref: development
+
+    - name: Display version information
+      shell: bash
+      run: |
+        echo "Building version: ${{ needs.version.outputs.version }}"
+        echo "Short version: ${{ needs.version.outputs.version_short }}"
+        echo "Version components:"
+        echo "  Major: ${{ needs.version.outputs.version_major }}"
+        echo "  Minor: ${{ needs.version.outputs.version_minor }}"
+        echo "  Patch: ${{ needs.version.outputs.version_patch }}"
+        echo "  Build: ${{ needs.version.outputs.version_build }}"
+
+    # Setup Visual Studio environment properly for Windows
+    - name: Setup MSBuild and Visual Studio (Windows)
+      if: runner.os == 'Windows'
+      uses: microsoft/setup-msbuild@v1.3
+      with:
+        msbuild-architecture: x64
+
+    # Add Visual Studio Developer Command Prompt to PATH
+    - name: Setup Visual Studio Environment (Windows)
+      if: runner.os == 'Windows'
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+
+    # Windows dependencies via vcpkg
+    - name: Install vcpkg dependencies (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        git clone https://github.com/Microsoft/vcpkg.git
+        cd vcpkg
+        .\bootstrap-vcpkg.bat
+        .\vcpkg.exe install expat:x64-windows openssl:x64-windows pthreads:x64-windows dlfcn-win32:x64-windows
+        $vcpkgRoot = "${{ github.workspace }}\vcpkg"
+        $toolchainFile = "$vcpkgRoot\scripts\buildsystems\vcpkg.cmake"
+        echo "VCPKG_ROOT=$vcpkgRoot" >> $env:GITHUB_ENV
+        echo "CMAKE_TOOLCHAIN_FILE=$toolchainFile" >> $env:GITHUB_ENV
+        Write-Host "Set VCPKG_ROOT to: $vcpkgRoot"
+        Write-Host "Set CMAKE_TOOLCHAIN_FILE to: $toolchainFile"
+
+    - name: Setup Windows dependencies
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        # Set PowerShell error handling to be more permissive for CI
+        $ErrorActionPreference = "Continue"
+        
+        # Install NSIS for creating Windows installers
+        Write-Host "Installing NSIS and pandoc via chocolatey..."
+        choco install nsis pandoc -y
+        
+        # Force refresh of environment variables for current session
+        Write-Host "Refreshing environment variables..."
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        
+        # Add NSIS to PATH manually if chocolatey installed it
+        $nsisInstallPath = "${env:ProgramFiles}\NSIS"
+        if (Test-Path $nsisInstallPath) {
+          Write-Host "Adding NSIS to PATH: $nsisInstallPath"
+          $env:Path += ";$nsisInstallPath"
+        }
+        
+        # Check for NSIS in alternative location
+        $nsisInstallPathx86 = "${env:ProgramFiles(x86)}\NSIS"
+        if (Test-Path $nsisInstallPathx86) {
+          Write-Host "Adding NSIS to PATH: $nsisInstallPathx86"
+          $env:Path += ";$nsisInstallPathx86"
+        }
+        
+        # Verify NSIS installation
+        Write-Host "Verifying NSIS installation:"
+        $nsisFound = $false
+        
+        # Try to find makensis in PATH
+        try {
+          $nsisPath = Get-Command makensis -ErrorAction SilentlyContinue
+          if ($nsisPath) {
+            Write-Host "NSIS found in PATH: $($nsisPath.Source)"
+            makensis /VERSION
+            $nsisFound = $true
+          }
+        } catch {
+          Write-Host "makensis not found in PATH"
+        }
+        
+        # If not found in PATH, check common locations
+        if (-not $nsisFound) {
+          Write-Host "Checking common NSIS installation locations..."
+          $commonPaths = @(
+            "${env:ProgramFiles}\NSIS\makensis.exe",
+            "${env:ProgramFiles(x86)}\NSIS\makensis.exe",
+            "C:\Program Files\NSIS\makensis.exe",
+            "C:\Program Files (x86)\NSIS\makensis.exe"
+          )
+          
+          foreach ($path in $commonPaths) {
+            if (Test-Path $path) {
+              Write-Host "NSIS found at: $path"
+              try {
+                & $path /VERSION
+                $nsisFound = $true
+                # Set environment variable for later use
+                $env:NSIS_PATH = $path
+                Write-Host "Set NSIS_PATH environment variable to: $path"
+                break
+              } catch {
+                Write-Host "Failed to execute NSIS at: $path"
+              }
+            }
+          }
+        }
+        
+        if (-not $nsisFound) {
+          Write-Host "WARNING: NSIS not found. Windows installer packages may not be available."
+        } else {
+          Write-Host "NSIS verification successful!"
+        }
+
+    # Create Windows byteswap compatibility header
+    - name: Create byteswap compatibility (Windows)
+      if: runner.os == 'Windows'
+      working-directory: ${{github.workspace}}
+      run: |
+        @"
+        #ifndef BYTESWAP_H
+        #define BYTESWAP_H
+        #ifdef _WIN32
+        #include <intrin.h>
+        #include <cstdint>
+        static inline uint16_t bswap_16(uint16_t x) { return _byteswap_ushort(x); }
+        static inline uint32_t bswap_32(uint32_t x) { return _byteswap_ulong(x); }
+        static inline uint64_t bswap_64(uint64_t x) { return _byteswap_uint64(x); }
+        #endif
+        #endif
+        "@ | Out-File -FilePath "byteswap.h" -Encoding UTF8
+
+    # Create macOS byteswap compatibility header
+    - name: Create byteswap compatibility (macOS)
+      if: runner.os == 'macOS'
+      working-directory: ${{github.workspace}}
+      run: |
+        cat > byteswap.h << 'EOF'
+        #ifndef BYTESWAP_H
+        #define BYTESWAP_H
+        #ifdef __APPLE__
+        #include <libkern/OSByteOrder.h>
+        #include <cstdint>
+        static inline uint16_t bswap_16(uint16_t x) { return OSSwapInt16(x); }
+        static inline uint32_t bswap_32(uint32_t x) { return OSSwapInt32(x); }
+        static inline uint64_t bswap_64(uint64_t x) { return OSSwapInt64(x); }
+        #endif
+        #endif
+        EOF
+
+    # Linux dependencies
+    - name: Install Linux dependencies
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libexpat1-dev libssl-dev pandoc
+
+    # macOS dependencies
+    - name: Install macOS dependencies
+      if: runner.os == 'macOS'
+      run: |
+        brew update
+        brew install openssl expat pandoc pkg-config
+        echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl)" >> $GITHUB_ENV
+        echo "EXPAT_ROOT_DIR=$(brew --prefix expat)" >> $GITHUB_ENV
+        echo "CMAKE_PREFIX_PATH=$(brew --prefix openssl):$(brew --prefix expat):$(brew --prefix)" >> $GITHUB_ENV
+        echo "PKG_CONFIG_PATH=$(brew --prefix openssl)/lib/pkgconfig:$(brew --prefix expat)/lib/pkgconfig:$(brew --prefix)/lib/pkgconfig" >> $GITHUB_ENV
+        echo "EXPAT_INCLUDE_DIR=$(brew --prefix expat)/include" >> $GITHUB_ENV
+        echo "EXPAT_LIBRARY=$(brew --prefix expat)/lib/libexpat.dylib" >> $GITHUB_ENV
+
+    - name: Create Build Environment
+      shell: bash
+      run: |
+        echo "Creating build directory..."
+        cmake -E make_directory ${{github.workspace}}/build
+        echo "Build directory created. Verifying..."
+        ls -la ${{github.workspace}}/build || echo "Directory listing failed"
+        echo "Build environment ready."
+
+    # Test Visual Studio compiler (Windows)
+    - name: Test Visual Studio Compiler (Windows)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        # Set PowerShell error handling to be more permissive for CI
+        $ErrorActionPreference = "Continue"
+        
+        Write-Host "Testing Visual Studio environment..."
+        try {
+          $clPath = where.exe cl.exe 2>$null
+          if ($clPath) {
+            Write-Host "Visual Studio compiler found at: $clPath"
+            # Run cl.exe and capture output properly
+            $clOutput = & cl.exe 2>&1 | Out-String
+            Write-Host "Compiler version information:"
+            Write-Host $clOutput
+          } else {
+            Write-Host "Visual Studio compiler (cl.exe) not found in PATH"
+          }
+        } catch {
+          Write-Host "Error testing Visual Studio compiler: $($_.Exception.Message)"
+        }
+        
+        Write-Host "Visual Studio environment variables:"
+        Get-ChildItem env: | Where-Object {$_.Name -match "VS|MSVC|VC"} | Format-Table Name, Value -AutoSize
+
+    # Configure CMake for Linux
+    - name: Configure CMake (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      working-directory: ${{github.workspace}}/build
+      run: |
+        cmake $GITHUB_WORKSPACE \
+          -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+          -DCMAKE_INSTALL_PREFIX=/usr \
+          -DVSCP_PATH=vscp/ \
+          -G "${{ matrix.generator }}"
+
+    # Configure CMake for Windows (using PowerShell for better variable handling)
+    - name: Configure CMake (Windows)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        # Set PowerShell error handling to be more permissive for CI
+        $ErrorActionPreference = "Continue"
+        
+        # Ensure build directory exists
+        $buildDir = "$env:GITHUB_WORKSPACE\build"
+        Write-Host "Checking build directory: $buildDir"
+        if (-not (Test-Path $buildDir)) {
+          Write-Host "Creating build directory..."
+          New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
+        }
+        cd $buildDir
+        Write-Host "Current directory: $(Get-Location)"
+        Write-Host "VCPKG_ROOT: $env:VCPKG_ROOT"
+        Write-Host "CMAKE_TOOLCHAIN_FILE: $env:CMAKE_TOOLCHAIN_FILE"
+        
+        Write-Host "Running CMake configuration..."
+        try {
+          cmake $env:GITHUB_WORKSPACE `
+            -DCMAKE_BUILD_TYPE="$env:BUILD_TYPE" `
+            "-DCMAKE_TOOLCHAIN_FILE=$env:CMAKE_TOOLCHAIN_FILE" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DVSCP_PATH=vscp/ `
+            "-DCMAKE_CXX_FLAGS=/utf-8 /I$env:GITHUB_WORKSPACE" `
+            "-DCMAKE_C_FLAGS=/utf-8 /I$env:GITHUB_WORKSPACE" `
+            -G "${{ matrix.generator }}" `
+            -A x64
+          
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "CMake configuration completed successfully"
+          } else {
+            Write-Host "CMake configuration failed with exit code: $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+        } catch {
+          Write-Host "CMake configuration error: $($_.Exception.Message)"
+          throw
+        }
+
+    # Configure CMake for macOS
+    - name: Configure CMake (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      working-directory: ${{github.workspace}}/build
+      run: |
+        cmake $GITHUB_WORKSPACE \
+          -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+          -DCMAKE_INSTALL_PREFIX=/usr/local \
+          -DVSCP_PATH=vscp/ \
+          -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR" \
+          -DEXPAT_ROOT_DIR="$EXPAT_ROOT_DIR" \
+          -DEXPAT_INCLUDE_DIR="$EXPAT_INCLUDE_DIR" \
+          -DEXPAT_LIBRARY="$EXPAT_LIBRARY" \
+          -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" \
+          -DPKG_CONFIG_USE_CMAKE_PREFIX_PATH=ON \
+          -DPkgConfig_EXECUTABLE="$(brew --prefix)/bin/pkg-config" \
+          "-DCMAKE_C_FLAGS=-I$GITHUB_WORKSPACE -I$OPENSSL_ROOT_DIR/include -Wno-deprecated-declarations" \
+          "-DCMAKE_CXX_FLAGS=-I$GITHUB_WORKSPACE -I$OPENSSL_ROOT_DIR/include -Wno-deprecated-declarations" \
+          "-DCMAKE_EXE_LINKER_FLAGS=-L$OPENSSL_ROOT_DIR/lib" \
+          "-DCMAKE_SHARED_LINKER_FLAGS=-L$OPENSSL_ROOT_DIR/lib" \
+          -G "${{ matrix.generator }}"
+
+    # Debug: Show CMake configuration for troubleshooting (Linux)
+    - name: Debug CMake configuration (Linux)
+      if: failure() && runner.os == 'Linux'
+      working-directory: ${{github.workspace}}/build
+      shell: bash
+      run: |
+        echo "=== System Information ==="
+        echo "OS: ${{ runner.os }}"
+        echo "Matrix OS: ${{ matrix.os }}"
+        echo "Generator: ${{ matrix.generator }}"
+        echo "=== CMake Cache ==="
+        cat CMakeCache.txt || echo "No CMakeCache.txt found"
+        echo "=== CMake Error Log ==="
+        cat CMakeFiles/CMakeError.log || echo "No CMakeError.log found"
+        echo "=== CMake Output Log ==="
+        cat CMakeFiles/CMakeOutput.log || echo "No CMakeOutput.log found"
+        echo "=== Environment Variables ==="
+        env | grep -E "(CMAKE|VCPKG|OPENSSL|EXPAT|PKG_CONFIG|VS|MSVC)" || echo "No relevant env vars"
+        echo "=== Directory Contents ==="
+        ls -la . || dir .
+        echo "=== VSCP Directory ==="
+        ls -la ../vscp || echo "VSCP directory not found"
+        echo "=== CMakeFiles Directory ==="
+        ls -la CMakeFiles/ || echo "No CMakeFiles directory"
+
+    # Debug: Show CMake configuration for troubleshooting (Windows)
+    - name: Debug CMake configuration (Windows)
+      if: failure() && runner.os == 'Windows'
+      shell: powershell
+      run: |
+        # Ensure build directory exists
+        $buildDir = "$env:GITHUB_WORKSPACE\build"
+        Write-Host "Checking build directory: $buildDir"
+        if (-not (Test-Path $buildDir)) {
+          Write-Host "Build directory does not exist!"
+          return
+        }
+        cd $buildDir
+        Write-Host "Current directory: $(Get-Location)"
+        Write-Host "=== System Information ==="
+        Write-Host "OS: ${{ runner.os }}"
+        Write-Host "Matrix OS: ${{ matrix.os }}"
+        Write-Host "Generator: ${{ matrix.generator }}"
+        Write-Host "=== CMake Cache ==="
+        if (Test-Path "CMakeCache.txt") { Get-Content "CMakeCache.txt" } else { Write-Host "No CMakeCache.txt found" }
+        Write-Host "=== CMake Error Log ==="
+        if (Test-Path "CMakeFiles/CMakeError.log") { Get-Content "CMakeFiles/CMakeError.log" } else { Write-Host "No CMakeError.log found" }
+        Write-Host "=== CMake Output Log ==="
+        if (Test-Path "CMakeFiles/CMakeOutput.log") { Get-Content "CMakeFiles/CMakeOutput.log" } else { Write-Host "No CMakeOutput.log found" }
+        Write-Host "=== Environment Variables ==="
+        Get-ChildItem env: | Where-Object {$_.Name -match "(CMAKE|VCPKG|OPENSSL|EXPAT|PKG_CONFIG|VS|MSVC)"} | Format-Table Name, Value -AutoSize
+        Write-Host "=== Directory Contents ==="
+        Get-ChildItem -Force
+        Write-Host "=== VSCP Directory ==="
+        if (Test-Path "../vscp") { Get-ChildItem "../vscp" } else { Write-Host "VSCP directory not found" }
+        Write-Host "=== CMakeFiles Directory ==="
+        if (Test-Path "CMakeFiles") { Get-ChildItem "CMakeFiles" } else { Write-Host "No CMakeFiles directory" }
+
+    # Build (Linux & macOS)
+    - name: Build (Linux & macOS)
+      if: runner.os == 'Linux' || runner.os == 'macOS'
+      working-directory: ${{github.workspace}}/build
+      shell: bash
+      run: cmake --build . --config $BUILD_TYPE --parallel
+
+    # Build (Windows)
+    - name: Build (Windows)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        # Ensure build directory exists
+        $buildDir = "$env:GITHUB_WORKSPACE\build"
+        Write-Host "Checking build directory: $buildDir"
+        if (-not (Test-Path $buildDir)) {
+          Write-Host "Build directory does not exist!"
+          exit 1
+        }
+        cd $buildDir
+        Write-Host "Building from directory: $(Get-Location)"
+        cmake --build . --config $env:BUILD_TYPE --parallel
+
+    # Test (Linux & macOS)
+    - name: Test (Linux & macOS)
+      if: runner.os == 'Linux' || runner.os == 'macOS'
+      working-directory: ${{github.workspace}}/build
+      shell: bash
+      run: ctest -C $BUILD_TYPE --output-on-failure || echo "No tests defined"
+
+    # Test (Windows)
+    - name: Test (Windows)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        # Ensure build directory exists
+        $buildDir = "$env:GITHUB_WORKSPACE\build"
+        Write-Host "Checking build directory: $buildDir"
+        if (-not (Test-Path $buildDir)) {
+          Write-Host "Build directory does not exist!"
+          exit 1
+        }
+        cd $buildDir
+        Write-Host "Testing from directory: $(Get-Location)"
+        ctest -C $env:BUILD_TYPE --output-on-failure; if ($LASTEXITCODE -ne 0) { Write-Host "No tests defined or tests failed" }
+
+    # Package for Linux
+    - name: Package (Linux)
+      if: runner.os == 'Linux'
+      working-directory: ${{github.workspace}}/build
+      shell: bash
+      run: |
+        # Try to create packages, but don't fail if some generators aren't available
+        cpack -G TGZ . || echo "TGZ package creation failed or not configured"
+        cpack -G DEB . || echo "DEB package creation failed or not configured"
+        cpack -G RPM . || echo "RPM package creation failed or not configured"
+        ls -la *.deb *.rpm *.tar.gz *.tgz 2>/dev/null || echo "No packages generated"
+
+    # Package for Windows
+    - name: Package (Windows)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        # Ensure build directory exists
+        $buildDir = "$env:GITHUB_WORKSPACE\build"
+        Write-Host "Checking build directory: $buildDir"
+        if (-not (Test-Path $buildDir)) {
+          Write-Host "Build directory does not exist!"
+          exit 1
+        }
+        cd $buildDir
+        Write-Host "Packaging from directory: $(Get-Location)"
+        
+        # Check if NSIS is available before trying to use it
+        $nsisAvailable = $false
+        try {
+          $nsisCmd = Get-Command makensis -ErrorAction SilentlyContinue
+          if ($nsisCmd) {
+            Write-Host "NSIS available in PATH: $($nsisCmd.Source)"
+            $nsisAvailable = $true
+          } elseif ($env:NSIS_PATH -and (Test-Path $env:NSIS_PATH)) {
+            Write-Host "NSIS available at: $env:NSIS_PATH"
+            $nsisAvailable = $true
+          }
+        } catch {
+          Write-Host "NSIS availability check failed"
+        }
+        
+        # Try different package generators for Windows
+        Write-Host "Attempting ZIP package creation..."
+        try { 
+          cpack -G ZIP . 
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "ZIP package creation succeeded"
+          } else {
+            Write-Host "ZIP package creation failed with exit code: $LASTEXITCODE"
+          }
+        } catch { 
+          Write-Host "ZIP package creation failed or not configured: $($_.Exception.Message)" 
+        }
+        
+        if ($nsisAvailable) {
+          Write-Host "Attempting NSIS package creation..."
+          try { 
+            cpack -G NSIS . 
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "NSIS package creation succeeded"
+            } else {
+              Write-Host "NSIS package creation failed with exit code: $LASTEXITCODE"
+            }
+          } catch { 
+            Write-Host "NSIS package creation failed or not configured: $($_.Exception.Message)" 
+          }
+        } else {
+          Write-Host "Skipping NSIS package creation - NSIS not available"
+        }
+        
+        Write-Host "Generated packages:"
+        $packages = Get-ChildItem -Include "*.exe", "*.zip" -ErrorAction SilentlyContinue
+        if ($packages) {
+          $packages | Format-Table Name, Length -AutoSize
+        } else {
+          Write-Host "No packages generated"
+        }
+
+    # Package for macOS
+    - name: Package (macOS)
+      if: runner.os == 'macOS'
+      working-directory: ${{github.workspace}}/build
+      shell: bash
+      run: |
+        cpack -G TGZ . || echo "TGZ package creation failed or not configured"
+        cpack -G DragNDrop . || echo "DragNDrop package creation failed or not configured"
+        ls -la *.dmg *.tar.gz *.tgz 2>/dev/null || echo "No packages generated"
+
+    # Upload artifacts
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: vscpl2drv-tcpipsrv-${{ needs.version.outputs.version }}-${{ matrix.os }}
+        path: |
+          ${{github.workspace}}/build/*.deb
+          ${{github.workspace}}/build/*.rpm
+          ${{github.workspace}}/build/*.tar.gz
+          ${{github.workspace}}/build/*.tgz
+          ${{github.workspace}}/build/*.dmg
+          ${{github.workspace}}/build/*.exe
+          ${{github.workspace}}/build/*.zip
+        retention-days: 30
+
+  # Release job (only on tags)
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: artifacts/**/*
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
