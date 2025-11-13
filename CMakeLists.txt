@@ -128,7 +128,7 @@ include(GNUInstallDirs)
 
 # --- Path to vscp --- 
 if (NOT DEFINED VSCP_PATH)
-  set (VSCP_PATH "${PROJECT_SOURCE_DIR}/../vscp")
+  set (VSCP_PATH "${PROJECT_SOURCE_DIR}/third_party/vscp")
 endif()
 
 if(WIN32)
@@ -276,6 +276,20 @@ add_library(vscpl2drv-tcpipsrv
   ./third_party/crypto-algorithms/sha256.h
   ./third_party/crypto-algorithms/sha256.c
 ) 
+
+# Set compile definitions for the target
+if (WIN32)
+  target_compile_definitions(vscpl2drv-tcpipsrv PRIVATE
+    WIN32
+    _WIN32
+    _CRT_SECURE_NO_WARNINGS
+    WIN32_LEAN_AND_MEAN
+    OPENSSL_API_1_1
+    _POSIX_C_SOURCE
+    VCPKG_TARGET_TRIPLET=x64-windows
+    MG_TLS=MG_TLS_OPENSSL
+  )
+endif()
 
 if (WIN32)
     
