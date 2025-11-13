@@ -37,10 +37,10 @@ jobs:
         cat "$VERSION_FILE"
         
         # Extract version components
-        VERSION_MAJOR=$(grep -E "#define\s+VSCPL2DRV_TCPIPSRV_MAJOR_VERSION\s+" "$VERSION_FILE" | sed -E 's/.*#define\s+VSCPL2DRV_TCPIPSRV_MAJOR_VERSION\s+([0-9]+).*/\1/')
-        VERSION_MINOR=$(grep -E "#define\s+VSCPL2DRV_TCPIPSRV_MINOR_VERSION\s+" "$VERSION_FILE" | sed -E 's/.*#define\s+VSCPL2DRV_TCPIPSRV_MINOR_VERSION\s+([0-9]+).*/\1/')
-        VERSION_PATCH=$(grep -E "#define\s+VSCPL2DRV_TCPIPSRV_RELEASE_VERSION\s+" "$VERSION_FILE" | sed -E 's/.*#define\s+VSCPL2DRV_TCPIPSRV_RELEASE_VERSION\s+([0-9]+).*/\1/')
-        VERSION_BUILD=$(grep -E "#define\s+VSCPL2DRV_TCPIPSRV_BUILD_VERSION\s+" "$VERSION_FILE" | sed -E 's/.*#define\s+VSCPL2DRV_TCPIPSRV_BUILD_VERSION\s+([0-9]+).*/\1/')
+        VERSION_MAJOR=$(grep -E "#define\s+MAJOR_VERSION\s+" "$VERSION_FILE" | sed -E 's/.*#define\s+MAJOR_VERSION\s+([0-9]+).*/\1/')
+        VERSION_MINOR=$(grep -E "#define\s+MINOR_VERSION\s+" "$VERSION_FILE" | sed -E 's/.*#define\s+MINOR_VERSION\s+([0-9]+).*/\1/')
+        VERSION_PATCH=$(grep -E "#define\s+RELEASE_VERSION\s+" "$VERSION_FILE" | sed -E 's/.*#define\s+RELEASE_VERSION\s+([0-9]+).*/\1/')
+        VERSION_BUILD=$(grep -E "#define\s+BUILD_VERSION\s+" "$VERSION_FILE" | sed -E 's/.*#define\s+BUILD_VERSION\s+([0-9]+).*/\1/')
         
         # Validate extracted values
         if [ -z "$VERSION_MAJOR" ] || [ -z "$VERSION_MINOR" ] || [ -z "$VERSION_PATCH" ] || [ -z "$VERSION_BUILD" ]; then
