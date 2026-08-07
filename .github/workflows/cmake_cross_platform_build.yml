@@ -135,7 +135,7 @@ jobs:
         git clone https://github.com/Microsoft/vcpkg.git
         cd vcpkg
         .\bootstrap-vcpkg.bat
-        .\vcpkg.exe install expat:x64-windows openssl:x64-windows pthreads:x64-windows dlfcn-win32:x64-windows
+        .\vcpkg.exe install expat:x64-windows openssl:x64-windows pthreads:x64-windows curl:x64-windows dlfcn-win32:x64-windows
         $vcpkgRoot = "${{ github.workspace }}\vcpkg"
         $toolchainFile = "$vcpkgRoot\scripts\buildsystems\vcpkg.cmake"
         echo "VCPKG_ROOT=$vcpkgRoot" >> $env:GITHUB_ENV
@@ -262,18 +262,18 @@ jobs:
       if: runner.os == 'Linux'
       run: |
         sudo apt-get update
-        sudo apt-get install -y libexpat1-dev libssl-dev pandoc
+        sudo apt-get install -y libexpat1-dev libssl-dev libcurl4-openssl-dev pandoc
 
     # macOS dependencies
     - name: Install macOS dependencies
       if: runner.os == 'macOS'
       run: |
         brew update
-        brew install openssl expat pandoc pkg-config
+        brew install openssl expat curl pandoc pkg-config
         echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl)" >> $GITHUB_ENV
         echo "EXPAT_ROOT_DIR=$(brew --prefix expat)" >> $GITHUB_ENV
-        echo "CMAKE_PREFIX_PATH=$(brew --prefix openssl):$(brew --prefix expat):$(brew --prefix)" >> $GITHUB_ENV
-        echo "PKG_CONFIG_PATH=$(brew --prefix openssl)/lib/pkgconfig:$(brew --prefix expat)/lib/pkgconfig:$(brew --prefix)/lib/pkgconfig" >> $GITHUB_ENV
+        echo "CMAKE_PREFIX_PATH=$(brew --prefix openssl):$(brew --prefix expat):$(brew --prefix curl):$(brew --prefix)" >> $GITHUB_ENV
+        echo "PKG_CONFIG_PATH=$(brew --prefix openssl)/lib/pkgconfig:$(brew --prefix expat)/lib/pkgconfig:$(brew --prefix curl)/lib/pkgconfig:$(brew --prefix)/lib/pkgconfig" >> $GITHUB_ENV
         echo "EXPAT_INCLUDE_DIR=$(brew --prefix expat)/include" >> $GITHUB_ENV
         echo "EXPAT_LIBRARY=$(brew --prefix expat)/lib/libexpat.dylib" >> $GITHUB_ENV
 

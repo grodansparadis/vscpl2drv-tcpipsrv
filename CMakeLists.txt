@@ -128,12 +128,14 @@ include(GNUInstallDirs)
 
 # --- Path to vscp --- 
 if (NOT DEFINED VSCP_PATH)
-  set (VSCP_PATH "${PROJECT_SOURCE_DIR}/../vscp")
+  set (VSCP_PATH "${PROJECT_SOURCE_DIR}/third_party/vscp")
 endif()
 
 if(WIN32)
 	add_definitions(-D_CRT_SECURE_NO_WARNINGS)
-  add_definitions(-DWIN32_LEAN_AND_MEANS)
+  add_definitions(-DWIN32)
+  add_definitions(-D_WIN32)
+  add_definitions(-DWIN32_LEAN_AND_MEAN)
   add_definitions(-DOPENSSL_API_1_1)
   add_definitions(-D_POSIX_C_SOURCE)    
   add_definitions(-DVCPKG_TARGET_TRIPLET=x64-windows)
@@ -213,14 +215,16 @@ find_package(OpenSSL REQUIRED)
 # curl
 find_package(CURL REQUIRED)
 
-# Windows Libs
+# Expat XML library
 if (WIN32)
-  #find_package(pthreads REQUIRED)
-
-  # Expat C library
   find_package(expat CONFIG REQUIRED)
 else()
+  find_package(EXPAT REQUIRED)
+endif()
 
+# Windows specific libs
+if (WIN32)
+  #find_package(pthreads REQUIRED)
 endif()
 
 # Set sockettcp build flags
@@ -275,6 +279,20 @@ add_library(vscpl2drv-tcpipsrv
   ./third_party/vscp/third_party/mustache/mustache.hpp
   ./third_party/vscp/third_party/spdlog/include   
 ) 
+
+# Set compile definitions for the target
+if (WIN32)
+  target_compile_definitions(vscpl2drv-tcpipsrv PRIVATE
+    WIN32
+    _WIN32
+    _CRT_SECURE_NO_WARNINGS
+    WIN32_LEAN_AND_MEAN
+    OPENSSL_API_1_1
+    _POSIX_C_SOURCE
+    VCPKG_TARGET_TRIPLET=x64-windows
+    MG_TLS=MG_TLS_OPENSSL
+  )
+endif()
 
 if (WIN32)
     
