@@ -1,6 +1,6 @@
 # Self-Signed Server Certificates for VSCP WebSocket Driver
 
-This guide explains how to generate self-signed certificates for the VSCP WebSocket driver (`vscpl2drv-websocksrv`) to enable secure WebSocket connections (WSS).
+This guide explains how to generate self-signed certificates for the VSCP tcpipsrv driver (`vscpl2drv-tcpipsrv`) to enable secure WebSocket connections (WSS).
 
 ## Prerequisites
 
@@ -112,7 +112,7 @@ sudo chmod 644 /etc/vscp/certs/cert.pem
 
 ### Update Driver Configuration
 
-Modify your `websocketsrv.json` to enable TLS:
+Modify your `tcpipsrv.json` to enable TLS:
 
 ```json
 {
@@ -123,8 +123,8 @@ Modify your `websocketsrv.json` to enable TLS:
     "interface": "wss://localhost:8884",
     "path-users": "/path/to/users.json",
     "tls": {
-        "ca": "/etc/vscp/certs/ca.pem",
-        "cert": "/etc/vscp/certs/cert.pem",
+        "ca": "/etc/vscp/certs/ca.pem",   (Normally the one to set)
+        "cert": "/etc/vscp/certs/cert.pem", (Two-way TLS not needed for self-signed)
         "key": "/etc/vscp/certs/key.pem"
     },
     "logging": {
@@ -146,6 +146,12 @@ Modify your `websocketsrv.json` to enable TLS:
     "url-rest": "rest"
 }
 ```
+
+Normally, when a client makes a connection to a TLS-enabled server, the server sends its certificate to the client and the client verifies it using its own CA (Certificate Authority) file. This way the client authenticates the server.
+
+In the most common situation, the client verifies the server, but the server does not verify the client. For example, browsers (clients) use a big CA file (or many CA files) to verify HTTPS servers.
+
+Clients can also provide certificates during the TLS handshake, and the server can verify it using a CA file. When both client and server use certificates, and verify the other side using a CA file, it is called two-way TLS. In order to implement two-way TLS, now both client and server must have their own cert, key and ca specified in mg_tls_opts:
 
 **Key Changes:**
 - Changed `interface` from `ws://` to `wss://`

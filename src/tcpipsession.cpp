@@ -1,4 +1,4 @@
-// srv.cpp
+// tcpipsrv.cpp
 //
 // This file is part of the VSCP (https://www.vscp.org)
 //
@@ -59,13 +59,13 @@
 #define DWORD unsigned long
 #endif
 
-#include <sockettcp.h>
+#include <mongoose.h>
 #include <vscp.h>
 #include <vscpdatetime.h>
 #include <vscphelper.h>
 
-#include "srv.h"
 #include "tcpipsrv.h"
+#include "tcpipsrvdrv.h"
 #include "version.h"
 
 #include <mustache.hpp>
@@ -83,322 +83,14 @@ using namespace kainjow::mustache;
 
 #define TCPIPSRV_INACTIVITY_TIMOUT (3600 * 12)
 
-// Worker threads
-void*
-tcpipListenThread(void* pData);
-void*
-tcpipClientThread(void* pData);
-
 ///////////////////////////////////////////////////////////////////////////////
-//                                  GLOBALS
-///////////////////////////////////////////////////////////////////////////////
-
-// ****************************************************************************
-//                               Listen thread
-// ****************************************************************************
-
-///////////////////////////////////////////////////////////////////////////////
-// tcpipListenThreadObj
+// CTcpipSession
 //
 // This thread listens for connection on a TCP socket and starts a new thread
 // to handle client requests
 //
 
-tcpipListenThreadObj::tcpipListenThreadObj(CTcpipSrv* pobj)
-{
-  // Set the control object pointer
-  setControlObjectPointer(pobj);
-
-  m_strListeningPort = "9598";
-
-  // Init. the server comtext structure
-  memset(&m_srvctx, 0, sizeof(struct server_context));
-
-  m_nStopTcpIpSrv = VSCP_TCPIP_SRV_RUN;
-  m_idCounter     = 0;
-
-  pthread_mutex_init(&m_mutexTcpClientList, NULL);
-}
-
-tcpipListenThreadObj::~tcpipListenThreadObj()
-{
-  pthread_mutex_destroy(&m_mutexTcpClientList);
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// tcpipListenThread
-//
-
-void*
-tcpipListenThread(void* pData)
-{
-  size_t i;
-  struct stcp_connection* conn;
-  struct socket* psocket = nullptr;
-  struct stcp_secure_options opts;
-  struct pollfd* pfd;
-  memset(&opts, 0, sizeof(opts));
-#ifdef WITH_WRAP
-  struct request_info wrap_req;
-  char address[1024];
-#endif
-
-  tcpipListenThreadObj* pListenObj = (tcpipListenThreadObj*)pData;
-  if (NULL == pListenObj) {
-    spdlog::error(
-      "TCP/IP client is missing client object data. Terminating thread.");
-    return NULL;
-  }
-
-  // create pointer to main object
-  CTcpipSrv* pObj = pListenObj->getControlObject();
-
-  // ------------------------------------------------------------------------
-
-  // * * * Init. secure options * * *
-
-  // Certificate
-  if (pObj->m_j_config.value("ssl_certificate", "").length()) {
-    opts.pem = STRDUP(pObj->m_j_config.value("ssl_certificate", "").c_str());
-  }
-
-  // Certificate chain
-  if (pObj->m_j_config.value("ssl_certificate_chain", "").length()) {
-    opts.chain =
-      STRDUP(pObj->m_j_config.value("ssl_certificate_chain", "").c_str());
-  }
-
-  opts.verify_peer = pObj->m_j_config.value("ssl_verify_peer", 0);
-
-  // CA path
-  if (pObj->m_j_config.value("ssl_ca_path", "").length()) {
-    opts.ca_path = STRDUP(pObj->m_j_config.value("ssl_ca_path", "").c_str());
-  }
-
-  // CA file
-  if (pObj->m_j_config.value("ssl_ca_file", "").length()) {
-    opts.chain = STRDUP(pObj->m_j_config.value("ssl_ca_file", "").c_str());
-  }
-
-  opts.verify_depth = pObj->m_j_config.value("ssl_verify_depth", 9);
-  opts.default_verify_path =
-    pObj->m_j_config.value("ssl_default_verify_paths", true);
-  opts.protocol_version = pObj->m_j_config.value("ssl_protocol_version", 3);
-
-  // chiper list
-  opts.chipher_list = STRDUP(
-    pObj->m_j_config
-      .value("ssl_cipher_list", "DES-CBC3-SHA:AES128-SHA:AES128-GCM-SHA256")
-      .c_str());
-
-  opts.short_trust = pObj->m_j_config.value("ssl_short_trust", false);
-
-  // Init. SSL subsystem
-  if (pObj->m_j_config.value("ssl_certificate", "").length()) {
-    if (0 == stcp_init_ssl(pListenObj->m_srvctx.ssl_ctx, &opts)) {
-      spdlog::error("[TCP/IP srv thread] Failed to init. ssl.\n");
-      return NULL;
-    }
-  }
-
-  // --------------------------------------------------------------------------------------
-
-  // Bind to selected interface
-  if (0 == stcp_listening(&pListenObj->m_srvctx,
-                          pListenObj->m_strListeningPort.c_str())) {
-    spdlog::error("[TCP/IP srv thread] Failed to init listening socket.");
-    return NULL;
-  }
-
-  spdlog::debug("[TCP/IP srv listen thread] Started.");
-
-  while (!pListenObj->m_nStopTcpIpSrv) {
-
-    pfd = pListenObj->m_srvctx.listening_socket_fds;
-    memset(pfd, 0, sizeof(*pfd));
-    for (i = 0; i < pListenObj->m_srvctx.num_listening_sockets; i++) {
-      pfd[i].fd      = pListenObj->m_srvctx.listening_sockets[i].sock;
-      pfd[i].events  = POLLIN;
-      pfd[i].revents = 0;
-    }
-
-    int pollres;
-    if ((pollres = stcp_poll(pfd,
-                             pListenObj->m_srvctx.num_listening_sockets,
-                             500,
-                             &(pListenObj->m_nStopTcpIpSrv))) > 0) {
-
-      for (i = 0; i < pListenObj->m_srvctx.num_listening_sockets; i++) {
-
-        // NOTE(lsm): on QNX, poll() returns POLLRDNORM after the
-        // successful poll, and POLLIN is defined as
-        // (POLLRDNORM | POLLRDBAND)
-        // Therefore, we're checking pfd[i].revents & POLLIN, not
-        // pfd[i].revents == POLLIN.
-        if (pfd[i].revents & POLLIN) {
-
-          conn = stcp_new_connection(); // Init connection
-          if (NULL == conn) {
-            spdlog::error("[TCP/IP srv] -- Memory problem when creating "
-                          "conn object.");
-            continue;
-          }
-
-          memset(conn, 0, sizeof(struct stcp_connection));
-
-          // idCounter is obid for tcp/ip channel
-          pListenObj->m_idCounter++;
-          if (!pListenObj->m_idCounter) {
-            pListenObj->m_idCounter = 1;
-          }
-          conn->client.id = pListenObj->m_idCounter;
-
-          if (stcp_accept(&pListenObj->m_srvctx,
-                          &pListenObj->m_srvctx.listening_sockets[i],
-                          &(conn->client))) {
-
-            stcp_init_client_connection(conn, &opts);
-            spdlog::debug("[TCP/IP srv] -- Connection accept.");
-
-#ifdef WITH_WRAP
-            /* Use tcpd / libwrap to determine whether a connection
-             * is allowed. */
-            request_init(&wrap_req,
-                         RQ_FILE,
-                         conn->client.sock,
-                         RQ_DAEMON,
-                         "vscpl2drv-tcpipsrv",
-                         0);
-            fromhost(&wrap_req);
-            if (!hosts_access(&wrap_req)) {
-              // Access is denied
-              if (!stcp_socket_get_address(conn, address, 1024)) {
-                spdlog::error("Client connection from {} "
-                              "denied access by tcpd.",
-                              address);
-              }
-              stcp_close_connection(conn);
-              conn = NULL;
-              continue;
-            }
-#endif
-
-            // Create the thread object
-            tcpipClientObj* pClientObj = new tcpipClientObj(pListenObj);
-            if (NULL == pClientObj) {
-              spdlog::error("[TCP/IP srv] -- Memory problem when "
-                            "creating client thread.");
-              stcp_close_connection(conn);
-              conn = NULL;
-              continue;
-            }
-
-            pClientObj->m_conn    = conn;
-            pClientObj->m_pParent = pListenObj;
-            spdlog::debug("Controlobject: Starting client tcp/ip thread...");
-            int err;
-            if ((err = pthread_create(&pClientObj->m_tcpipClientThread,
-                                      NULL,
-                                      tcpipClientThread,
-                                      pClientObj))) {
-              spdlog::error("[TCP/IP srv] -- Failed to run client "
-                            "tcp/ip client thread. error=%d",
-                            err);
-              delete pClientObj;
-              stcp_close_connection(conn);
-              conn = NULL;
-              continue;
-            }
-
-            // Make it detached
-            pthread_detach(pClientObj->m_tcpipClientThread);
-
-            // Add conn to list of active connections
-            pthread_mutex_lock(&pListenObj->m_mutexTcpClientList);
-            pListenObj->m_tcpip_clientList.push_back(pClientObj);
-            pthread_mutex_unlock(&pListenObj->m_mutexTcpClientList);
-          }
-          else {
-            delete psocket;
-            psocket = NULL;
-          }
-        }
-
-      } // for
-
-    } // poll
-
-    pollres = 0;
-
-  } // While
-
-  spdlog::debug("[TCP/IP srv listen thread] Preparing Exit.");
-
-  // Wait for clients to terminate
-  int loopCnt = 0;
-  while (true) {
-
-    pthread_mutex_lock(&pListenObj->m_mutexTcpClientList);
-    if (!pListenObj->m_tcpip_clientList.size())
-      break;
-    pthread_mutex_unlock(&pListenObj->m_mutexTcpClientList);
-
-    loopCnt++;
-#ifndef WIN32
-    sleep(1); // Give them some time
-#else
-    Sleep(1000);
-#endif
-  }
-
-  stcp_close_all_listening_sockets(&pListenObj->m_srvctx);
-
-  // * * * Deallocate allocated security options * * *
-
-  if (NULL != opts.pem) {
-    free((void*)opts.pem);
-    opts.pem = NULL;
-  }
-
-  if (NULL != opts.chain) {
-    free((void*)opts.chain);
-    opts.chain = NULL;
-  }
-
-  if (NULL != opts.ca_path) {
-    free((void*)opts.ca_path);
-    opts.ca_path = NULL;
-  }
-
-  if (NULL != opts.ca_file) {
-    free((void*)opts.ca_file);
-    opts.ca_file = NULL;
-  }
-
-  if (NULL != opts.chipher_list) {
-    free((void*)opts.chipher_list);
-    opts.chipher_list = NULL;
-  }
-
-  if (pObj->m_j_config.value("ssl_certificate", "").length()) {
-    stcp_uninit_ssl();
-  }
-  spdlog::debug("[TCP/IP srv listen thread] Exit.");
-  return NULL;
-}
-
-// ****************************************************************************
-//                              Client thread
-// ****************************************************************************
-
-///////////////////////////////////////////////////////////////////////////////
-// tcpipClientObj
-//
-// This thread listens for connection on a TCP socket and starts a new thread
-// to handle client requests
-//
-
-tcpipClientObj::tcpipClientObj(tcpipListenThreadObj* pParent)
+CTcpipSession::CTcpipSession(tcpipListenThreadObj* pParent)
 {
   m_strResponse.clear();  // For clearness
   m_rv           = 0;     // No error code
@@ -412,7 +104,7 @@ tcpipClientObj::tcpipClientObj(tcpipListenThreadObj* pParent)
   }
 }
 
-tcpipClientObj::~tcpipClientObj()
+CTcpipSession::~CTcpipSession()
 {
   pthread_join(m_tcpipClientThread, NULL);
   m_commandArray.clear(); // TODO remove strings
@@ -423,19 +115,21 @@ tcpipClientObj::~tcpipClientObj()
 //
 
 bool
-tcpipClientObj::write(std::string& str, bool bAddCRLF)
+CTcpipSession::write(std::string& str, bool bAddCRLF)
 {
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state)
+  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
     return false;
+  }
 
   if (bAddCRLF) {
     str += std::string("\r\n");
   }
 
   m_rv = stcp_write(m_conn, (const char*)str.c_str(), str.length());
-  if (m_rv != str.length())
+  if (m_rv != str.length()) {
     return false;
+  }
 
   return true;
 }
@@ -445,7 +139,7 @@ tcpipClientObj::write(std::string& str, bool bAddCRLF)
 //
 
 bool
-tcpipClientObj::write(const char* buf, size_t len)
+CTcpipSession::write(const char* buf, size_t len)
 {
   // Must be connected
   if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
@@ -465,7 +159,7 @@ tcpipClientObj::write(const char* buf, size_t len)
 //
 
 bool
-tcpipClientObj::read(std::string& str)
+CTcpipSession::read(std::string& str)
 {
   size_t pos;
 
@@ -492,7 +186,7 @@ tcpipClientObj::read(std::string& str)
 //
 
 int
-tcpipClientObj::CommandHandler(std::string& strCommand)
+CTcpipSession::CommandHandler(std::string& strCommand)
 {
   // Must be connected
   if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
@@ -919,7 +613,7 @@ tcpipClientObj::CommandHandler(std::string& strCommand)
 //
 
 void
-tcpipClientObj::handleClientMeasurement(void)
+CTcpipSession::handleClientMeasurement(void)
 {
   std::string str;
   double value = 0;
@@ -942,8 +636,9 @@ tcpipClientObj::handleClientMeasurement(void)
   }
 
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state)
+  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
     return;
+  }
 
   if (NULL == m_pClientItem) {
     write(MSG_INTERNAL_MEMORY_ERROR, strlen(MSG_INTERNAL_MEMORY_ERROR));
@@ -1055,8 +750,9 @@ tcpipClientObj::handleClientMeasurement(void)
     vscp_trim(str);
 
     // If empty set to default.
-    if (0 == str.length())
+    if (0 == str.length()) {
       str = "-";
+    }
     guid.getFromString(str);
   }
 
@@ -1079,7 +775,7 @@ tcpipClientObj::handleClientMeasurement(void)
     vscp_trim(str);
 
     zone = vscp_readStringValue(str);
-    ;
+
     zone &= 0xff;
   }
 
@@ -1104,25 +800,36 @@ tcpipClientObj::handleClientMeasurement(void)
     vscp_trim(str);
 
     // If empty set to default.
-    if (0 == str.length())
+    if (0 == str.length()) {
       str = ("-");
+    }
     destguid.getFromString(str);
   }
 
   // Range checks
   if (VSCP_LEVEL1 == level) {
-    if (unit > 3)
+
+    if (unit > 3) {
       unit = 0;
-    if (sensoridx > 7)
+    }
+
+    if (sensoridx > 7) {
       unit = 0;
-    if (vscptype > 512)
+    }
+
+    if (vscptype > 512) {
       vscptype -= 512;
+    }
   }
   else { // VSCP_LEVEL2
-    if (unit > 255)
+
+    if (unit > 255) {
       unit &= 0xff;
-    if (sensoridx > 255)
+    }
+
+    if (sensoridx > 255) {
       sensoridx &= 0xff;
+    }
   }
 
   if (1 == level) { // Level I
@@ -1136,8 +843,10 @@ tcpipClientObj::handleClientMeasurement(void)
                                             (float)value,
                                             (uint8_t)unit,
                                             (uint8_t)sensoridx)) {
-        if (sizeData > 8)
+        // Make sure size is in a valid range                                              
+        if (sizeData > 8) {
           sizeData = 8;
+        }
 
         vscpEvent* pEvent = new vscpEvent;
         if (NULL == pEvent) {
@@ -1297,7 +1006,7 @@ tcpipClientObj::handleClientMeasurement(void)
 //
 
 void
-tcpipClientObj::handleClientCapabilityRequest(void)
+CTcpipSession::handleClientCapabilityRequest(void)
 {
   std::string str;
   uint64_t capabilities =
@@ -1323,7 +1032,7 @@ tcpipClientObj::handleClientCapabilityRequest(void)
 //
 
 bool
-tcpipClientObj::isVerified(void)
+CTcpipSession::isVerified(void)
 {
   // Check object
   if (NULL == m_pObj) {
@@ -1331,8 +1040,9 @@ tcpipClientObj::isVerified(void)
   }
 
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state)
+  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
     return false;
+  }
 
   // Must be accredited to do this
   if (!m_pClientItem->bAuthenticated) {
@@ -1348,7 +1058,7 @@ tcpipClientObj::isVerified(void)
 //
 
 bool
-tcpipClientObj::checkPrivilege(unsigned long reqiredPrivilege)
+CTcpipSession::checkPrivilege(unsigned long reqiredPrivilege)
 {
   // Check objects
   if (NULL == m_pObj) {
@@ -1386,7 +1096,7 @@ tcpipClientObj::checkPrivilege(unsigned long reqiredPrivilege)
 //
 
 void
-tcpipClientObj::handleClientSend(void)
+CTcpipSession::handleClientSend(void)
 {
   vscpEvent event;
 
@@ -1705,7 +1415,7 @@ tcpipClientObj::handleClientSend(void)
 //
 
 void
-tcpipClientObj::handleClientReceive(void)
+CTcpipSession::handleClientReceive(void)
 {
   unsigned short cnt = 0; // # of messages to read
 
@@ -1754,7 +1464,7 @@ tcpipClientObj::handleClientReceive(void)
 //
 
 bool
-tcpipClientObj::sendOneEventFromQueue(bool bStatusMsg)
+CTcpipSession::sendOneEventFromQueue(bool bStatusMsg)
 {
   std::string strOut;
 
@@ -1774,7 +1484,8 @@ tcpipClientObj::sendOneEventFromQueue(bool bStatusMsg)
     pthread_mutex_unlock(&m_pClientItem->m_mutexClientInputQueue);
 
     // [[clientid == obid]] is used to detect our own events
-    if (m_pObj->m_bReceiveOwnEvents || (pqueueEvent->obid != m_pClientItem->m_clientID)) {
+    if (m_pObj->m_bReceiveOwnEvents ||
+        (pqueueEvent->obid != m_pClientItem->m_clientID)) {
       vscp_convertEventToString(strOut, pqueueEvent);
       strOut += ("\r\n");
       write(strOut.c_str(), strlen(strOut.c_str()));
@@ -1798,7 +1509,7 @@ tcpipClientObj::sendOneEventFromQueue(bool bStatusMsg)
 //
 
 void
-tcpipClientObj::handleClientDataAvailable(void)
+CTcpipSession::handleClientDataAvailable(void)
 {
   char outbuf[1024];
 
@@ -1826,7 +1537,7 @@ tcpipClientObj::handleClientDataAvailable(void)
 //
 
 void
-tcpipClientObj::handleClientClearInputQueue(void)
+CTcpipSession::handleClientClearInputQueue(void)
 {
   // Must be connected
   if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
@@ -1858,7 +1569,7 @@ tcpipClientObj::handleClientClearInputQueue(void)
 //
 
 void
-tcpipClientObj::handleClientGetStatistics(void)
+CTcpipSession::handleClientGetStatistics(void)
 {
   char outbuf[1024];
 
@@ -1893,7 +1604,7 @@ tcpipClientObj::handleClientGetStatistics(void)
 //
 
 void
-tcpipClientObj::handleClientGetStatus(void)
+CTcpipSession::handleClientGetStatus(void)
 {
   char outbuf[1024];
 
@@ -1925,7 +1636,7 @@ tcpipClientObj::handleClientGetStatus(void)
 //
 
 void
-tcpipClientObj::handleClientGetChannelID(void)
+CTcpipSession::handleClientGetChannelID(void)
 {
   char outbuf[1024];
 
@@ -1954,7 +1665,7 @@ tcpipClientObj::handleClientGetChannelID(void)
 //
 
 void
-tcpipClientObj::handleClientSetChannelGUID(void)
+CTcpipSession::handleClientSetChannelGUID(void)
 {
   // Must be connected
   if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
@@ -1978,7 +1689,7 @@ tcpipClientObj::handleClientSetChannelGUID(void)
 //
 
 void
-tcpipClientObj::handleClientGetChannelGUID(void)
+CTcpipSession::handleClientGetChannelGUID(void)
 {
   std::string strBuf;
 
@@ -2005,7 +1716,7 @@ tcpipClientObj::handleClientGetChannelGUID(void)
 //
 
 void
-tcpipClientObj::handleClientGetVersion(void)
+CTcpipSession::handleClientGetVersion(void)
 {
   char outbuf[1024];
 
@@ -2031,7 +1742,7 @@ tcpipClientObj::handleClientGetVersion(void)
 //
 
 void
-tcpipClientObj::handleClientSetFilter(void)
+CTcpipSession::handleClientSetFilter(void)
 {
   // Must be connected
   if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
@@ -2101,7 +1812,7 @@ tcpipClientObj::handleClientSetFilter(void)
 //
 
 void
-tcpipClientObj::handleClientSetMask(void)
+CTcpipSession::handleClientSetMask(void)
 {
   // Must be connected
   if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
@@ -2171,7 +1882,7 @@ tcpipClientObj::handleClientSetMask(void)
 //
 
 void
-tcpipClientObj::handleClientUser(void)
+CTcpipSession::handleClientUser(void)
 {
   // Must be connected
   if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
@@ -2198,7 +1909,7 @@ tcpipClientObj::handleClientUser(void)
 //
 
 bool
-tcpipClientObj::handleClientPassword(void)
+CTcpipSession::handleClientPassword(void)
 {
   // Must be connected
   if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
@@ -2284,7 +1995,7 @@ tcpipClientObj::handleClientPassword(void)
 //
 
 void
-tcpipClientObj::handleChallenge(void)
+CTcpipSession::handleChallenge(void)
 {
   std::string str;
 
@@ -2312,7 +2023,7 @@ tcpipClientObj::handleChallenge(void)
 //
 
 void
-tcpipClientObj::handleClientRcvLoop(void)
+CTcpipSession::handleClientRcvLoop(void)
 {
   // Must be connected
   if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
@@ -2331,7 +2042,7 @@ tcpipClientObj::handleClientRcvLoop(void)
 //
 
 void
-tcpipClientObj::handleClientTest(void)
+CTcpipSession::handleClientTest(void)
 {
   write(MSG_OK, strlen(MSG_OK));
   return;
@@ -2342,7 +2053,7 @@ tcpipClientObj::handleClientTest(void)
 //
 
 void
-tcpipClientObj::handleClientRestart(void)
+CTcpipSession::handleClientRestart(void)
 {
   write(MSG_COMMAND_NOT_SUPPORTED, strlen(MSG_COMMAND_NOT_SUPPORTED));
 #ifndef WIN32
@@ -2360,7 +2071,7 @@ tcpipClientObj::handleClientRestart(void)
 //
 
 void
-tcpipClientObj::handleClientShutdown(void)
+CTcpipSession::handleClientShutdown(void)
 {
   // Must be connected
   if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
@@ -2385,7 +2096,7 @@ tcpipClientObj::handleClientShutdown(void)
 //
 
 void
-tcpipClientObj::handleClientRemote(void)
+CTcpipSession::handleClientRemote(void)
 {
   return;
 }
@@ -2403,7 +2114,7 @@ tcpipClientObj::handleClientRemote(void)
 // close    Close interfaces. Full format is INTERFACE CLOSE id
 
 void
-tcpipClientObj::handleClientInterface(void)
+CTcpipSession::handleClientInterface(void)
 {
   // Must be connected
   if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
@@ -2432,7 +2143,7 @@ tcpipClientObj::handleClientInterface(void)
 //
 
 void
-tcpipClientObj::handleClientInterface_List(void)
+CTcpipSession::handleClientInterface_List(void)
 {
   std::string strGUID;
   std::string strBuf;
@@ -2470,7 +2181,7 @@ tcpipClientObj::handleClientInterface_List(void)
 //
 
 void
-tcpipClientObj::handleClientInterface_Unique(void)
+CTcpipSession::handleClientInterface_Unique(void)
 {
   unsigned char ifGUID[16];
   memset(ifGUID, 0, 16);
@@ -2495,7 +2206,7 @@ tcpipClientObj::handleClientInterface_Unique(void)
 //
 
 void
-tcpipClientObj::handleClientInterface_Normal(void)
+CTcpipSession::handleClientInterface_Normal(void)
 {
   // TODO
 }
@@ -2505,7 +2216,7 @@ tcpipClientObj::handleClientInterface_Normal(void)
 //
 
 void
-tcpipClientObj::handleClientInterface_Close(void)
+CTcpipSession::handleClientInterface_Close(void)
 {
   // TODO
 }
@@ -2519,7 +2230,7 @@ tcpipClientObj::handleClientInterface_Close(void)
 //
 
 void
-tcpipClientObj::handleClientHelp(void)
+CTcpipSession::handleClientHelp(void)
 {
   // Must be connected
   if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
@@ -2735,7 +2446,7 @@ tcpipClientObj::handleClientHelp(void)
 void*
 tcpipClientThread(void* pData)
 {
-  tcpipClientObj* ptcpipobj = (tcpipClientObj*)pData;
+  CTcpipSession* ptcpipobj = (CTcpipSession*)pData;
   if (NULL == ptcpipobj) {
     spdlog::error("[TCP/IP srv client thread] Error, "
                   "Client thread object not initialized.");
@@ -2896,8 +2607,9 @@ tcpipClientThread(void* pData)
       vscp_trim(strCommand);
 
       // If nothing to do do nothing - pretty obvious if you think about it
-      if (0 == strCommand.length())
+      if (0 == strCommand.length()) {
         continue;
+      }
 
       // Check for repeat command
       // +    - repeat last command
@@ -2955,13 +2667,13 @@ tcpipClientThread(void* pData)
 
   // Remove the client from the client queue
   pthread_mutex_lock(&ptcpipobj->m_pParent->m_mutexTcpClientList);
-  std::list<tcpipClientObj*>::iterator it;
+  std::list<CTcpipSession*>::iterator it;
   for (it = ptcpipobj->m_pParent->m_tcpip_clientList.begin();
        it != ptcpipobj->m_pParent->m_tcpip_clientList.end();
        ++it) {
 
-    tcpipClientObj* pclient             = *it; // TODO check
-    struct stcp_connection* stored_conn = pclient->m_conn;
+    CTcpipSession* pclient            = *it; // TODO check
+    struct mg_connection* stored_conn = pclient->m_conn;
     if (stored_conn->client.id == ptcpipobj->m_conn->client.id) {
       ptcpipobj->m_pParent->m_tcpip_clientList.erase(it);
       break;

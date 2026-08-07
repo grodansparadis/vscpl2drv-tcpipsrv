@@ -36,3 +36,7 @@ config.log
 config.status
 autom4te.cache/
 config.h.in~
+
+
+#Ignore vscode AI rules
+.github/instructions/codacy.instructions.md

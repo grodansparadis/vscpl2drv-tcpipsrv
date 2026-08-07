@@ -1,4 +1,4 @@
-// tcpipsrv.cpp: implementation of the CTcpipSrv class.
+// tcpipsrvdrv.cpp: implementation of the CTcpipSrvDrv class.
 //
 // This program is free software; you can redistribute it and/or
 // modify it under the terms of the GNU General Public License
@@ -63,7 +63,7 @@
 
 #include <expat.h>
 
-#include "tcpipsrv.h"
+#include "tcpipsrvdrv.h"
 #include <hlo.h>
 #include <remotevariablecodes.h>
 #include <vscp-class.h>
@@ -86,17 +86,28 @@ using json = nlohmann::json;
 
 using namespace kainjow::mustache;
 
-// Forward declaration
+// Forward declarations
+
+/*
+  Mongoose server callback function
+*/
+static void
+serverCallbackFunc(struct mg_connection* conn, int ev, void* ev_data);
+
+/*
+  TCP/IP server worker thread - main thread
+*/
 void*
-tcpipListenThread(void* pData);
+tcpipWorkerThread(void* pData);
 
 //////////////////////////////////////////////////////////////////////
-// CTcpipSrv
+// CTcpipSrvDrv
 //
 
-CTcpipSrv::CTcpipSrv()
+CTcpipSrvDrv::CTcpipSrvDrv()
 {
-  m_bQuit = false;
+  m_bQuit              = false;
+  m_strListenInterface = "tcp://localhost:9598";
 
   vscp_clearVSCPFilter(&m_rxfilter); // Accept all events
   vscp_clearVSCPFilter(&m_txfilter); // Send all events
@@ -104,7 +115,7 @@ CTcpipSrv::CTcpipSrv()
   m_responseTimeout = TCPIP_DEFAULT_INNER_RESPONSE_TIMEOUT;
 
 #ifdef WIN32
-  m_semSendQueue = CreateSemaphore(NULL, 0, 0x7fffffff, NULL);
+  m_semSendQueue    = CreateSemaphore(NULL, 0, 0x7fffffff, NULL);
   m_semReceiveQueue = CreateSemaphore(NULL, 0, 0x7fffffff, NULL);
 #else
   sem_init(&m_semSendQueue, 0, 0);
@@ -146,10 +157,10 @@ CTcpipSrv::CTcpipSrv()
 }
 
 //////////////////////////////////////////////////////////////////////
-// ~CTcpipSrv
+// ~CTcpipSrvDrv
 //
 
-CTcpipSrv::~CTcpipSrv()
+CTcpipSrvDrv::~CTcpipSrvDrv()
 {
   close();
 
@@ -159,7 +170,7 @@ CTcpipSrv::~CTcpipSrv()
 #else
   sem_destroy(&m_semSendQueue);
   sem_destroy(&m_semReceiveQueue);
-#endif  
+#endif
 
   pthread_mutex_destroy(&m_mutexSendQueue);
   pthread_mutex_destroy(&m_mutexReceiveQueue);
@@ -172,7 +183,7 @@ CTcpipSrv::~CTcpipSrv()
 //
 
 bool
-CTcpipSrv::open(std::string& path, const uint8_t* pguid)
+CTcpipSrvDrv::open(std::string& path, const uint8_t* pguid)
 {
   // Must have a valid GUID
   if (NULL == pguid) {
@@ -233,7 +244,7 @@ CTcpipSrv::open(std::string& path, const uint8_t* pguid)
   //   spdlog::set_default_logger(logger);
   // }
 
-  spdlog::debug("---> Open");
+  spdlog::trace("---> Open");
 
   if (!startTcpipSrvThread()) {
     spdlog::critical("Failed to start server.");
@@ -241,7 +252,7 @@ CTcpipSrv::open(std::string& path, const uint8_t* pguid)
     return false;
   }
 
-  spdlog::debug("Open <---");
+  spdlog::trace("Open <---");
 
   return true;
 }
@@ -251,7 +262,7 @@ CTcpipSrv::open(std::string& path, const uint8_t* pguid)
 //
 
 void
-CTcpipSrv::close(void)
+CTcpipSrvDrv::close(void)
 {
   // Do nothing if already terminated
   if (m_bQuit) {
@@ -275,7 +286,7 @@ CTcpipSrv::close(void)
 //
 
 bool
-CTcpipSrv::doLoadConfig(std::string& path)
+CTcpipSrvDrv::doLoadConfig(std::string& path)
 {
   try {
     std::ifstream in(m_path, std::ifstream::in);
@@ -284,6 +295,22 @@ CTcpipSrv::doLoadConfig(std::string& path)
   catch (json::parse_error) {
     spdlog::critical("Failed to load/parse JSON configuration.");
     return false;
+  }
+
+  // debug
+  if (m_j_config.contains("debug")) {
+    try {
+      m_bDebug = m_j_config["debug"].get<bool>();
+    }
+    catch (const std::exception& ex) {
+      spdlog::error("Failed to read 'debug' Error='{}'", ex.what());
+    }
+    catch (...) {
+      spdlog::error("Failed to read 'debug' due to unknown error.");
+    }
+  }
+  else {
+    spdlog::error("ReadConfig: Failed to read 'debug' Defaults will be used.");
   }
 
   // write
@@ -580,7 +607,7 @@ CTcpipSrv::doLoadConfig(std::string& path)
   // interface
   if (m_j_config.contains("interface")) {
     try {
-      m_interface = m_j_config["interface"].get<std::string>();
+      m_strInterface = m_j_config["interface"].get<std::string>();
     }
     catch (const std::exception& ex) {
       spdlog::error("ReadConfig: Failed to read 'interface' Error='{}'",
@@ -731,196 +758,54 @@ CTcpipSrv::doLoadConfig(std::string& path)
 
     json j = m_j_config["tls"];
 
-    // Certificate
-    if (j.contains("certificate")) {
+    // Path to CA certificate
+    if (j.contains("ca")) {
       try {
-        m_tls_certificate = j["certificate"].get<std::string>();
+        setCaPath(j["ca"].get<std::string>());
       }
       catch (const std::exception& ex) {
-        spdlog::error("ReadConfig: Failed to read 'certificate' Error='{}'",
+        spdlog::error("ReadConfig: Failed to read 'ca' Error='{}'", ex.what());
+      }
+      catch (...) {
+        spdlog::error("ReadConfig: Failed to read 'ca' due to unknown error.");
+      }
+    }
+    else {
+      spdlog::debug("ReadConfig: Failed to read 'ca' Defaults will be used.");
+    }
+
+    // Path to certificate
+    if (j.contains("cert")) {
+      try {
+        setCertPath(j["cert"].get<std::string>());
+      }
+      catch (const std::exception& ex) {
+        spdlog::error("ReadConfig: Failed to read 'cert' Error='{}'",
                       ex.what());
       }
       catch (...) {
         spdlog::error(
-          "ReadConfig: Failed to read 'certificate' due to unknown error.");
+          "ReadConfig: Failed to read 'cert' due to unknown error.");
       }
     }
     else {
-      spdlog::debug(
-        "ReadConfig: Failed to read 'certificate' Defaults will be used.");
+      spdlog::debug("ReadConfig: Failed to read 'cert' Defaults will be used.");
     }
 
-    // certificate chain
-    if (j.contains("certificate_chain")) {
+    // Path to private key
+    if (j.contains("key")) {
       try {
-        m_tls_certificate_chain = j["certificate_chain"].get<std::string>();
+        setKeyPath(j["key"].get<std::string>());
       }
       catch (const std::exception& ex) {
-        spdlog::error(
-          "ReadConfig: Failed to read 'certificate_chain' Error='{}'",
-          ex.what());
+        spdlog::error("ReadConfig: Failed to read 'key' Error='{}'", ex.what());
       }
       catch (...) {
-        spdlog::error("ReadConfig: Failed to read 'certificate_chain' due to "
-                      "unknown error.");
+        spdlog::error("ReadConfig: Failed to read 'key' due to unknown error.");
       }
     }
     else {
-      spdlog::debug("ReadConfig: Failed to read 'certificate_chain' Defaults "
-                    "will be used.");
-    }
-
-    // verify peer
-    if (j.contains("verify-peer")) {
-      try {
-        m_tls_verify_peer = j["verify-peer"].get<bool>();
-      }
-      catch (const std::exception& ex) {
-        spdlog::error("ReadConfig: Failed to read 'verify-peer' Error='{}'",
-                      ex.what());
-      }
-      catch (...) {
-        spdlog::error(
-          "ReadConfig: Failed to read 'verify-peer' due to unknown error.");
-      }
-    }
-    else {
-      spdlog::debug(
-        "ReadConfig: Failed to read 'verify-peer' Defaults will be used.");
-    }
-
-    // CA Path
-    if (j.contains("ca-path")) {
-      try {
-        m_tls_ca_file = j["ca-path"].get<std::string>();
-      }
-      catch (const std::exception& ex) {
-        spdlog::error("ReadConfig: Failed to read 'ca-path' Error='{}'",
-                      ex.what());
-      }
-      catch (...) {
-        spdlog::error(
-          "ReadConfig: Failed to read 'ca-path' due to unknown error.");
-      }
-    }
-    else {
-      spdlog::debug("ReadConfig: ReadConfig: Failed to read 'ca-path' Defaults "
-                    "will be used.");
-    }
-
-    // CA File
-    if (j.contains("ca-file")) {
-      try {
-        m_tls_ca_file = j["ca-file"].get<std::string>();
-      }
-      catch (const std::exception& ex) {
-        spdlog::error("ReadConfig: Failed to read 'ca-file' Error='{}'",
-                      ex.what());
-      }
-      catch (...) {
-        spdlog::error(
-          "ReadConfig: Failed to read 'ca-file' due to unknown error.");
-      }
-    }
-    else {
-      spdlog::debug("ReadConfig: ReadConfig: Failed to read 'ca-file' Defaults "
-                    "will be used.");
-    }
-
-    // Verify depth
-    if (j.contains("verify_depth")) {
-      try {
-        m_tls_verify_depth = j["verify_depth"].get<uint8_t>();
-      }
-      catch (const std::exception& ex) {
-        spdlog::error("ReadConfig: Failed to read 'verify_depth' Error='{}'",
-                      ex.what());
-      }
-      catch (...) {
-        spdlog::error(
-          "ReadConfig: Failed to read 'verify_depth' due to unknown error.");
-      }
-    }
-    else {
-      spdlog::debug(
-        "ReadConfig: Failed to read 'verify_depth' Defaults will be used.");
-    }
-
-    // Default verify paths
-    if (j.contains("default-verify-paths")) {
-      try {
-        m_tls_default_verify_paths = j["default-verify-paths"].get<bool>();
-      }
-      catch (const std::exception& ex) {
-        spdlog::error(
-          "ReadConfig:Failed to read 'default-verify-paths' Error='{}'",
-          ex.what());
-      }
-      catch (...) {
-        spdlog::error("ReadConfig:Failed to read 'default-verify-paths' due to "
-                      "unknown error.");
-      }
-    }
-    else {
-      spdlog::debug("ReadConfig: Failed to read 'default-verify-paths' "
-                    "Defaults will be used.");
-    }
-
-    // Chiper list
-    if (j.contains("cipher-list")) {
-      try {
-        m_tls_cipher_list = j["cipher-list"].get<std::string>();
-      }
-      catch (const std::exception& ex) {
-        spdlog::error("ReadConfig:Failed to read 'cipher-list' Error='{}'",
-                      ex.what());
-      }
-      catch (...) {
-        spdlog::error(
-          "ReadConfig:Failed to read 'cipher-list' due to unknown error.");
-      }
-    }
-    else {
-      spdlog::debug(
-        "ReadConfig: Failed to read 'cipher-list' Defaults will be used.");
-    }
-
-    // Protocol version
-    if (j.contains("protocol-version")) {
-      try {
-        m_tls_protocol_version = j["protocol-version"].get<uint8_t>();
-      }
-      catch (const std::exception& ex) {
-        spdlog::error("ReadConfig:Failed to read 'protocol-version' Error='{}'",
-                      ex.what());
-      }
-      catch (...) {
-        spdlog::error("ReadConfig:Failed to read 'protocol-version' due to "
-                      "unknown error.");
-      }
-    }
-    else {
-      spdlog::debug("ReadConfig: Failed to read 'protocol-version' Defaults "
-                    "will be used.");
-    }
-
-    // Short trust
-    if (j.contains("short-trust")) {
-      try {
-        m_tls_short_trust = j["short-trust"].get<bool>();
-      }
-      catch (const std::exception& ex) {
-        spdlog::error("ReadConfig:Failed to read 'short-trust' Error='{}'",
-                      ex.what());
-      }
-      catch (...) {
-        spdlog::error(
-          "ReadConfig:Failed to read 'short-trust' due to unknown error.");
-      }
-    }
-    else {
-      spdlog::debug(
-        "ReadConfig: Failed to read 'short-trust' Defaults will be used.");
+      spdlog::debug("ReadConfig: Failed to read 'cert' Defaults will be used.");
     }
   }
 
@@ -972,7 +857,7 @@ CTcpipSrv::doLoadConfig(std::string& path)
 //
 
 bool
-CTcpipSrv::doSaveConfig(void)
+CTcpipSrvDrv::doSaveConfig(void)
 {
   if (m_j_config.value("write", false)) {
   }
@@ -984,7 +869,7 @@ CTcpipSrv::doSaveConfig(void)
 //
 
 bool
-CTcpipSrv::handleHLO(vscpEvent* pEvent)
+CTcpipSrvDrv::handleHLO(vscpEvent* pEvent)
 {
   vscpEventEx ex;
 
@@ -1102,7 +987,7 @@ CTcpipSrv::handleHLO(vscpEvent* pEvent)
 //
 
 bool
-CTcpipSrv::readVariable(vscpEventEx& ex, const json& json_req)
+CTcpipSrvDrv::readVariable(vscpEventEx& ex, const json& json_req)
 {
   json j;
 
@@ -1225,7 +1110,7 @@ abort:
 //
 
 bool
-CTcpipSrv::writeVariable(vscpEventEx& ex, const json& json_req)
+CTcpipSrvDrv::writeVariable(vscpEventEx& ex, const json& json_req)
 {
   json j;
 
@@ -1505,7 +1390,7 @@ abort:
 //
 
 bool
-CTcpipSrv::deleteVariable(vscpEventEx& ex, const json& json_reg)
+CTcpipSrvDrv::deleteVariable(vscpEventEx& ex, const json& json_reg)
 {
   json j;
 
@@ -1559,7 +1444,7 @@ abort:
 //
 
 bool
-CTcpipSrv::stop(void)
+CTcpipSrvDrv::stop(void)
 {
   return true;
 }
@@ -1569,7 +1454,7 @@ CTcpipSrv::stop(void)
 //
 
 bool
-CTcpipSrv::start(void)
+CTcpipSrvDrv::start(void)
 {
   return true;
 }
@@ -1579,7 +1464,7 @@ CTcpipSrv::start(void)
 //
 
 bool
-CTcpipSrv::restart(void)
+CTcpipSrvDrv::restart(void)
 {
   if (!stop()) {
     spdlog::warn("Failed to stop VSCP tcp/ip server.");
@@ -1597,7 +1482,7 @@ CTcpipSrv::restart(void)
 //
 
 bool
-CTcpipSrv::eventExToReceiveQueue(vscpEventEx& ex)
+CTcpipSrvDrv::eventExToReceiveQueue(vscpEventEx& ex)
 {
   vscpEvent* pev = new vscpEvent();
   if (!vscp_convertEventExToEvent(pev, &ex)) {
@@ -1633,16 +1518,16 @@ CTcpipSrv::eventExToReceiveQueue(vscpEventEx& ex)
 //
 
 bool
-CTcpipSrv::addEvent2SendQueue(const vscpEvent* pEvent)
+CTcpipSrvDrv::addEvent2SendQueue(const vscpEvent* pEvent)
 {
   pthread_mutex_lock(&m_mutexSendQueue);
   m_sendList.push_back((vscpEvent*)pEvent);
 #ifdef WIN32
-    ReleaseSemaphore(m_semSendQueue, 1, NULL);
+  ReleaseSemaphore(m_semSendQueue, 1, NULL);
 #else
-    sem_post(&m_semSendQueue);
+  sem_post(&m_semSendQueue);
 #endif
-  
+
   pthread_mutex_unlock(&m_mutexSendQueue);
   return true;
 }
@@ -1654,7 +1539,7 @@ CTcpipSrv::addEvent2SendQueue(const vscpEvent* pEvent)
 //
 
 bool
-CTcpipSrv::addEvent2ReceiveQueue(const vscpEvent* pEvent)
+CTcpipSrvDrv::addEvent2ReceiveQueue(const vscpEvent* pEvent)
 {
   pthread_mutex_lock(&m_mutexReceiveQueue);
   m_receiveList.push_back((vscpEvent*)pEvent);
@@ -1672,7 +1557,8 @@ CTcpipSrv::addEvent2ReceiveQueue(const vscpEvent* pEvent)
 //
 
 bool
-CTcpipSrv::sendEventToClient(CClientItem* pClientItem, const vscpEvent* pEvent)
+CTcpipSrvDrv::sendEventToClient(CClientItem* pClientItem,
+                                const vscpEvent* pEvent)
 {
   // Must be valid pointers
   if (NULL == pClientItem) {
@@ -1723,7 +1609,7 @@ CTcpipSrv::sendEventToClient(CClientItem* pClientItem, const vscpEvent* pEvent)
 #else
     sem_post(&pClientItem->m_semClientInputQueue);
 #endif
-  } 
+  }
 
   return true;
 }
@@ -1733,7 +1619,7 @@ CTcpipSrv::sendEventToClient(CClientItem* pClientItem, const vscpEvent* pEvent)
 //
 
 bool
-CTcpipSrv::sendEventAllClients(const vscpEvent* pEvent)
+CTcpipSrvDrv::sendEventAllClients(const vscpEvent* pEvent)
 {
   CClientItem* pClientItem;
   std::deque<CClientItem*>::iterator it;
@@ -1770,7 +1656,7 @@ CTcpipSrv::sendEventAllClients(const vscpEvent* pEvent)
 //
 
 bool
-CTcpipSrv::startTcpipSrvThread(void)
+CTcpipSrvDrv::startTcpipSrvThread(void)
 {
   if (__VSCP_DEBUG_TCP) {
     spdlog::debug("Controlobject: Starting TCP/IP interface...");
@@ -1804,7 +1690,7 @@ CTcpipSrv::startTcpipSrvThread(void)
 //
 
 bool
-CTcpipSrv::stopTcpipSrvThread(void)
+CTcpipSrvDrv::stopTcpipSrvThread(void)
 {
   // Tell the thread it's time to quit
   m_ptcpipSrvObject->m_nStopTcpIpSrv = VSCP_TCPIP_SRV_STOP;
@@ -1829,7 +1715,7 @@ CTcpipSrv::stopTcpipSrvThread(void)
 //
 
 bool
-CTcpipSrv::addClient(CClientItem* pClientItem, uint32_t id)
+CTcpipSrvDrv::addClient(CClientItem* pClientItem, uint32_t id)
 {
   // Check pointer
   if (NULL == pClientItem) {
@@ -1856,7 +1742,7 @@ CTcpipSrv::addClient(CClientItem* pClientItem, uint32_t id)
 //
 
 bool
-CTcpipSrv::addClient(CClientItem* pClientItem, cguid& guid)
+CTcpipSrvDrv::addClient(CClientItem* pClientItem, cguid& guid)
 {
   // Check pointer
   if (NULL == pClientItem) {
@@ -1876,7 +1762,7 @@ CTcpipSrv::addClient(CClientItem* pClientItem, cguid& guid)
 //
 
 void
-CTcpipSrv::removeClient(CClientItem* pClientItem)
+CTcpipSrvDrv::removeClient(CClientItem* pClientItem)
 {
   // Do not try to handle invalid clients
   if (NULL == pClientItem)
@@ -1891,7 +1777,7 @@ CTcpipSrv::removeClient(CClientItem* pClientItem)
 //
 
 bool
-CTcpipSrv::generateSessionId(const char* pKey, char* psid)
+CTcpipSrvDrv::generateSessionId(const char* pKey, char* psid)
 {
   char buf[8193];
 
@@ -1931,7 +1817,7 @@ CTcpipSrv::generateSessionId(const char* pKey, char* psid)
 //
 
 bool
-CTcpipSrv::readEncryptionKey(const std::string& path)
+CTcpipSrvDrv::readEncryptionKey(const std::string& path)
 {
   try {
     std::ifstream in(path, std::ifstream::in);
@@ -1945,4 +1831,229 @@ CTcpipSrv::readEncryptionKey(const std::string& path)
   }
 
   return true;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// serverCallbackFunc
+//
+
+static void
+serverCallbackFunc(struct mg_connection* conn, int ev, void* ev_data)
+{
+  CTcpipSrvDrv* ptcpipsrvdrv = (CTcpipSrvDrv*)ev_data;
+  if (nullptr == ptcpipsrvdrv) {
+    spdlog::critical("TCP/IP srv: serverCallbackFunc: ptcpipsrvdrv is nullptr");
+    return;
+  }
+
+  CTcpipSrvDrv* pDriverObj = ptcpipsrv->getDriverObject();
+  if (nullptr == pDriverObj) {
+    spdlog::critical("TCP/IP srv: serverCallbackFunc: pDriverObj is nullptr");
+    return;
+  }
+
+  if (ev == MG_EV_OPEN && conn->is_listening == 1) {
+    conn->is_hexdumping = 1;
+    MG_INFO(("SERVER is listening"));
+  }
+  else if (ev == MG_EV_ACCEPT) {
+    MG_INFO(("SERVER accepted a connection"));
+    if (mg_url_is_ssl(ptcpipsrv->getListeningInterface().c_str())) {
+      struct mg_tls_opts opts = {
+        .ca   = mg_unpacked(ptcpipsrv->getCaPath().c_str()),
+        .cert = mg_unpacked(ptcpipsrv->getCertPath().c_str()),
+        .key  = mg_unpacked(ptcpipsrv->getKeyPath().c_str())
+      };
+      mg_tls_init(conn, &opts);
+    }
+  }
+  else if (ev == MG_EV_READ) {
+    struct mg_iobuf* r = &conn->recv;
+    MG_INFO(("SERVER got data: %.*s", r->len, r->buf));
+    mg_send(conn, r->buf, r->len); // echo it back
+    r->len = 0;                    // Tell Mongoose we've consumed data
+  }
+  else if (ev == MG_EV_CLOSE) {
+    MG_INFO(("SERVER disconnected"));
+  }
+  else if (ev == MG_EV_ERROR) {
+    MG_INFO(("SERVER error: %s", (char*)ev_data));
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// tcpipWorkerThread
+//
+
+void*
+tcpipWorkerThread(void* pData)
+{
+  size_t i;
+  struct mg_mgr mgr;
+  struct mg_connection* conn;
+  struct socket* psocket = nullptr;
+  struct mg_tls_opts opts;
+  struct pollfd* pfd;
+  memset(&opts, 0, sizeof(opts));
+
+  CTcpipSrvDrv* ptcpipsrvdrv = (CTcpipSrvDrv*)pData;
+  if (NULL == ptcpipsrvdrv) {
+    spdlog::critical(
+      "TCP/IP client is missing driver object data. Terminating thread.");
+    return NULL;
+  }
+
+  // Bind to selected interface
+  if (0 == mg_listen(&mgr,
+                     pListenObj->m_strListenInterface.c_str(),
+                     serverCallbackFunc,
+                     ptcpipsrvdrv)) {
+    spdlog::error("[TCP/IP srv thread] Failed to init listening socket.");
+    return NULL;
+  }
+
+  spdlog::debug("[TCP/IP srv listen thread] Started.");
+
+  // Work on
+  while (!pListenObj->m_nStopTcpIpSrv) {
+
+    // Poll all open sockets
+    mg_mgr_poll(&mgr, 100);
+
+    //     pfd = pListenObj->m_conn.fd;
+    //     memset(pfd, 0, sizeof(*pfd));
+    //     for (i = 0; i < pListenObj->m_srvctx.num_listening_sockets; i++) {
+    //       pfd[i].fd      = pListenObj->m_srvctx.listening_sockets[i].sock;
+    //       pfd[i].events  = POLLIN;
+    //       pfd[i].revents = 0;
+    //     }
+
+    //     int pollres;
+    //     if ((pollres = mg_poll(pfd,
+    //                            pListenObj->m_srvctx.num_listening_sockets,
+    //                            500,
+    //                            &(pListenObj->m_nStopTcpIpSrv))) > 0) {
+
+    //       for (i = 0; i < pListenObj->m_srvctx.num_listening_sockets; i++) {
+
+    //         // NOTE(lsm): on QNX, poll() returns POLLRDNORM after the
+    //         // successful poll, and POLLIN is defined as
+    //         // (POLLRDNORM | POLLRDBAND)
+    //         // Therefore, we're checking pfd[i].revents & POLLIN, not
+    //         // pfd[i].revents == POLLIN.
+    //         if (pfd[i].revents & POLLIN) {
+
+    //           conn = stcp_new_connection(); // Init connection
+    //           if (NULL == conn) {
+    //             spdlog::error("[TCP/IP srv] -- Memory problem when creating "
+    //                           "conn object.");
+    //             continue;
+    //           }
+
+    //           memset(conn, 0, sizeof(struct mg_connection));
+
+    //           // idCounter is obid for tcp/ip channel
+    //           pListenObj->m_idCounter++;
+    //           if (!pListenObj->m_idCounter) {
+    //             pListenObj->m_idCounter = 1;
+    //           }
+    //           conn->client.id = pListenObj->m_idCounter;
+
+    //           if (stcp_accept(&pListenObj->m_srvctx,
+    //                           &pListenObj->m_srvctx.listening_sockets[i],
+    //                           &(conn->client))) {
+
+    //             stcp_init_client_connection(conn, &opts);
+    //             spdlog::debug("[TCP/IP srv] -- Connection accept.");
+
+    //             // Create the thread object
+    //             CTcpipSrv* pClientObj = new CTcpipSrv(pListenObj);
+    //             if (NULL == pClientObj) {
+    //               spdlog::error("[TCP/IP srv] -- Memory problem when "
+    //                             "creating client thread.");
+    //               stcp_close_connection(conn);
+    //               conn = NULL;
+    //               continue;
+    //             }
+
+    //             pClientObj->m_conn    = conn;
+    //             pClientObj->m_pParent = pListenObj;
+    //             spdlog::debug("Controlobject: Starting client tcp/ip
+    //             thread..."); int err; if ((err =
+    //             pthread_create(&pClientObj->m_tcpipClientThread,
+    //                                       NULL,
+    //                                       tcpipClientThread,
+    //                                       pClientObj))) {
+    //               spdlog::error("[TCP/IP srv] -- Failed to run client "
+    //                             "tcp/ip client thread. error=%d",
+    //                             err);
+    //               delete pClientObj;
+    //               stcp_close_connection(conn);
+    //               conn = NULL;
+    //               continue;
+    //             }
+
+    //             // Make it detached
+    //             pthread_detach(pClientObj->m_tcpipClientThread);
+
+    //             // Add conn to list of active connections
+    //             pthread_mutex_lock(&pListenObj->m_mutexTcpClientList);
+    //             pListenObj->m_tcpip_clientList.push_back(pClientObj);
+    //             pthread_mutex_unlock(&pListenObj->m_mutexTcpClientList);
+    //           }
+    //           else {
+    //             delete psocket;
+    //             psocket = NULL;
+    //           }
+    //         }
+
+    //       } // for
+
+  } // poll
+
+  // pollres = 0;
+
+} // While
+
+spdlog::debug("[TCP/IP srv listen thread] Preparing Exit.");
+
+// Wait for clients to terminate
+//   int loopCnt = 0;
+//   while (true) {
+
+//     pthread_mutex_lock(&pListenObj->m_mutexTcpClientList);
+//     if (!pListenObj->m_tcpip_clientList.size())
+//       break;
+//     pthread_mutex_unlock(&pListenObj->m_mutexTcpClientList);
+
+//     loopCnt++;
+// #ifndef WIN32
+//     sleep(1); // Give them some time
+// #else
+//     Sleep(1000);
+// #endif
+//   }
+
+// stcp_close_all_listening_sockets(&pListenObj->m_srvctx);
+
+// Free resources
+mg_mgr_free(&mgr);
+
+// * * * Deallocate allocated security options * * *
+
+// if (NULL != opts.ca_path) {
+//   free((void*)opts.ca_path);
+//   opts.ca_path = NULL;
+// }
+
+// if (NULL != opts.ca_file) {
+//   free((void*)opts.ca_file);
+//   opts.ca_file = NULL;
+// }
+
+// if (pObj->m_j_config.value("ssl_certificate", "").length()) {
+//   stcp_uninit_ssl();
+// }
+spdlog::debug("[TCP/IP srv listen thread] Exit.");
+return NULL;
 }
