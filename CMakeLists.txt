@@ -24,7 +24,7 @@
 #
 #
 
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10...3.31)
 project(vscpl2drv-tcpipsrv LANGUAGES CXX C)
 set(PACKAGE_AUTHOR "Ake Hedman, the VSCP Project")
 
@@ -179,6 +179,8 @@ IF(EXISTS "${CMAKE_ROOT}/Modules/CPack.cmake")
   SET(CPACK_NSIS_INSTALLED_ICON_NAME "${APP_LOW_NAME}.ico")
   SET(CPACK_NSIS_HELP_LINK ${APP_URL})
   SET(CPACK_NSIS_URL_INFO_ABOUT ${APP_URL})
+  SET(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+  SET(CPACK_RESOURCE_FILE_README "${CMAKE_CURRENT_SOURCE_DIR}/README.md")
   SET(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 
   IF(NOT DEFINED WIN32)
@@ -193,7 +195,7 @@ IF(EXISTS "${CMAKE_ROOT}/Modules/CPack.cmake")
 
   # Configure file with custom definitions for NSIS.
   configure_file(
-    ${PROJECT_SOURCE_DIR}/resources/nsis/NSIS.definitions.nsh.in
+    ${CMAKE_CURRENT_SOURCE_DIR}/resources/nsis/NSIS.definitions.nsh.in
     ${CMAKE_CURRENT_BINARY_DIR}/resources/nsis/NSIS.definitions.nsh
   )
 
@@ -358,15 +360,15 @@ if(WIN32)
   file(GLOB deps_files "${CMAKE_BINARY_DIR}/Release/*.dll")
   install(FILES ${deps_files} DESTINATION ${CMAKE_INSTALL_BINDIR})
   # LICENSE
-  install(FILES "${CMAKE_BINARY_DIR}/../LICENSE" DESTINATION "${CMAKE_INSTALL_BINDIR}/..")
+  install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE" DESTINATION "${CMAKE_INSTALL_BINDIR}/..")
   # README
-  install(FILES "${CMAKE_BINARY_DIR}/../README.md" DESTINATION "${CMAKE_INSTALL_BINDIR}/..")
+  install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/README.md" DESTINATION "${CMAKE_INSTALL_BINDIR}/..")
 else()
   install(TARGETS vscpl2drv-tcpipsrv
           LIBRARY DESTINATION ${CMAKE_INSTALL_FULL_}${VSCP_LEVEL2_DRV_DIR}
           RUNTIME DESTINATION ${CMAKE_INSTALL_MANDIR}            
           RESOURCE DESTINATION ${CMAKE_INSTALL_FULL_}/var/lib/vscp/vscpd) 
-  install(FILES ${CMAKE_SOURCE_DIR}/resources/linux/tcpipsrv.json
-            ${CMAKE_SOURCE_DIR}/resources/linux/users.json
+  install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/resources/linux/tcpipsrv.json
+            ${CMAKE_CURRENT_SOURCE_DIR}/resources/linux/users.json
           DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/vscpl2drv-tcpipsrv/")         
 endif()

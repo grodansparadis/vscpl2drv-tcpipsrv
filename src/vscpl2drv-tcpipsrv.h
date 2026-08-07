@@ -47,7 +47,7 @@
 #include <vscp.h>
 #include <hlo.h>
 
-#include "tcpipsrv.h"
+#include "tcpipsrvdrv.h"
 
 #ifndef BOOL
 typedef int BOOL;
@@ -72,7 +72,7 @@ typedef int BOOL;
     @return handle or 0 for error
 */
 long
-addDriverObject(CTcpipSrv *pif);
+addDriverObject(CTcpipSrvDrv *pif);
 
 /*!
     Get a driver object from its handle
@@ -81,7 +81,7 @@ addDriverObject(CTcpipSrv *pif);
     @return pointer to object or NULL if invalid
             handle.
 */
-CTcpipSrv *
+CTcpipSrvDrv *
 getDriverObject(long handle);
 
 /*!

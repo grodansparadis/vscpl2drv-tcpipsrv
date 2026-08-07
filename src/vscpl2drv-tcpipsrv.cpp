@@ -44,7 +44,7 @@
 #include <hlo.h>
 
 #include "vscpl2drv-tcpipsrv.h"
-#include "tcpipsrv.h"
+#include "tcpipsrvdrv.h"
 
 #ifdef WIN32
 #else
@@ -60,7 +60,7 @@ _fini() __attribute__((destructor));
 #endif
 
 // This map holds driver handles/objects
-static std::map<long, CTcpipSrv*> g_ifMap;
+static std::map<long, CTcpipSrvDrv*> g_ifMap;
 
 // Mutex for the map object
 static pthread_mutex_t g_mapMutex;
@@ -89,12 +89,12 @@ _fini()
     // Remove orphan objects
     LOCK_MUTEX(g_mapMutex);
 
-    for (std::map<long, CTcpipSrv*>::iterator it = g_ifMap.begin();
+    for (std::map<long, CTcpipSrvDrv*>::iterator it = g_ifMap.begin();
          it != g_ifMap.end();
          ++it) {
         // std::cout << it->first << " => " << it->second << '\n';
 
-        CTcpipSrv* pif = it->second;
+        CTcpipSrvDrv* pif = it->second;
         if (NULL != pif) {
             //pif->m_srvRemoteSend.doCmdClose();
             //pif->m_srvRemoteReceive.doCmdClose();
@@ -114,9 +114,9 @@ _fini()
 //
 
 long
-addDriverObject(CTcpipSrv* pif)
+addDriverObject(CTcpipSrvDrv* pif)
 {
-    std::map<long, CTcpipSrv*>::iterator it;
+    std::map<long, CTcpipSrvDrv*>::iterator it;
     long h = 0;
 
     LOCK_MUTEX(g_mapMutex);
@@ -140,10 +140,10 @@ addDriverObject(CTcpipSrv* pif)
 // getDriverObject
 //
 
-CTcpipSrv*
+CTcpipSrvDrv*
 getDriverObject(long h)
 {
-    std::map<long, CTcpipSrv*>::iterator it;
+    std::map<long, CTcpipSrvDrv*>::iterator it;
     long idx = h - 1681;
 
     // Check if valid handle
@@ -166,7 +166,7 @@ getDriverObject(long h)
 void
 removeDriverObject(long h)
 {
-    std::map<long, CTcpipSrv*>::iterator it;
+    std::map<long, CTcpipSrvDrv*>::iterator it;
     long idx = h - 1681;
 
     // Check if valid handle
@@ -177,7 +177,7 @@ removeDriverObject(long h)
     LOCK_MUTEX(g_mapMutex);
     it = g_ifMap.find(idx);
     if (it != g_ifMap.end()) {
-        CTcpipSrv* pObj = it->second;
+        CTcpipSrvDrv* pObj = it->second;
         if (NULL != pObj) {
             delete pObj;
             pObj = NULL;
@@ -200,7 +200,7 @@ VSCPOpen(const char* pPathConfig, const char* pguid)
 {
     long h = 0;
 
-    CTcpipSrv* pdrvObj = new CTcpipSrv();
+    CTcpipSrvDrv* pdrvObj = new CTcpipSrvDrv();
     if (NULL != pdrvObj) {
 
         //cguid guid(pguid);
@@ -226,7 +226,7 @@ VSCPOpen(const char* pPathConfig, const char* pguid)
 extern "C" int
 VSCPClose(long handle)
 {
-    CTcpipSrv* pdrvObj = getDriverObject(handle);
+    CTcpipSrvDrv* pdrvObj = getDriverObject(handle);
     if (NULL == pdrvObj) {
         return 0;
     }
@@ -244,7 +244,7 @@ VSCPClose(long handle)
 extern "C" int
 VSCPWrite(long handle, const vscpEvent* pEvent, unsigned long timeout)
 {
-    CTcpipSrv* pdrvObj = getDriverObject(handle);
+    CTcpipSrvDrv* pdrvObj = getDriverObject(handle);
     if (NULL == pdrvObj) {
         return CANAL_ERROR_MEMORY;
     }
@@ -269,7 +269,7 @@ VSCPRead(long handle, vscpEvent* pEvent, unsigned long timeout)
         return CANAL_ERROR_PARAMETER;
     }
 
-    CTcpipSrv* pdrvObj = getDriverObject(handle);
+    CTcpipSrvDrv* pdrvObj = getDriverObject(handle);
     if (NULL == pdrvObj) {
         return CANAL_ERROR_MEMORY;
     }

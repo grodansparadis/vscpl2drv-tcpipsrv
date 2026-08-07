@@ -26,7 +26,9 @@
 #endif
 
 #include <fstream>
+#include <sstream>
 #include <iostream>
+#include <deque>
 #include <list>
 #include <map>
 #include <string>
@@ -62,6 +64,7 @@
 #include <time.h>
 
 #include <expat.h>
+#include "mongoose.h"
 
 #include "tcpipsrvdrv.h"
 #include <hlo.h>
@@ -1662,22 +1665,16 @@ CTcpipSrvDrv::startTcpipSrvThread(void)
     spdlog::debug("Controlobject: Starting TCP/IP interface...");
   }
 
-  // Create the tcp/ip server data object
-  m_ptcpipSrvObject = (tcpipListenThreadObj*)new tcpipListenThreadObj(this);
-  if (NULL == m_ptcpipSrvObject) {
-    spdlog::error("Controlobject: Failed to allocate storage for tcp/ip.");
+  if (m_j_config.contains("interface") && m_j_config["interface"].is_string()) {
+    m_strListenInterface = m_j_config["interface"].get<std::string>();
   }
 
-  // Set the port to listen for connections on
-  m_ptcpipSrvObject->setListeningPort(
-    m_j_config["interface"].get<std::string>());
+  m_bQuit = false;
 
   if (pthread_create(&m_tcpipListenThread,
                      NULL,
-                     tcpipListenThread,
-                     m_ptcpipSrvObject)) {
-    delete m_ptcpipSrvObject;
-    m_ptcpipSrvObject = NULL;
+                     tcpipWorkerThread,
+                     this)) {
     spdlog::error("Controlobject: Unable to start the tcp/ip listen thread.");
     return false;
   }
@@ -1693,15 +1690,13 @@ bool
 CTcpipSrvDrv::stopTcpipSrvThread(void)
 {
   // Tell the thread it's time to quit
-  m_ptcpipSrvObject->m_nStopTcpIpSrv = VSCP_TCPIP_SRV_STOP;
+  m_bQuit = true;
 
   if (__VSCP_DEBUG_TCP) {
     spdlog::debug("Controlobject: Terminating TCP thread.");
   }
 
   pthread_join(m_tcpipListenThread, NULL);
-  delete m_ptcpipSrvObject;
-  m_ptcpipSrvObject = NULL;
 
   if (__VSCP_DEBUG_TCP) {
     spdlog::debug("Controlobject: Terminated TCP thread.");
@@ -1840,44 +1835,31 @@ CTcpipSrvDrv::readEncryptionKey(const std::string& path)
 static void
 serverCallbackFunc(struct mg_connection* conn, int ev, void* ev_data)
 {
-  CTcpipSrvDrv* ptcpipsrvdrv = (CTcpipSrvDrv*)ev_data;
-  if (nullptr == ptcpipsrvdrv) {
-    spdlog::critical("TCP/IP srv: serverCallbackFunc: ptcpipsrvdrv is nullptr");
-    return;
-  }
-
-  CTcpipSrvDrv* pDriverObj = ptcpipsrv->getDriverObject();
+  CTcpipSrvDrv* pDriverObj = (CTcpipSrvDrv*)ev_data;
   if (nullptr == pDriverObj) {
-    spdlog::critical("TCP/IP srv: serverCallbackFunc: pDriverObj is nullptr");
+    spdlog::critical("TCP/IP srv: serverCallbackFunc: driver object is nullptr");
     return;
   }
 
   if (ev == MG_EV_OPEN && conn->is_listening == 1) {
     conn->is_hexdumping = 1;
-    MG_INFO(("SERVER is listening"));
+    spdlog::debug("SERVER is listening");
   }
   else if (ev == MG_EV_ACCEPT) {
-    MG_INFO(("SERVER accepted a connection"));
-    if (mg_url_is_ssl(ptcpipsrv->getListeningInterface().c_str())) {
-      struct mg_tls_opts opts = {
-        .ca   = mg_unpacked(ptcpipsrv->getCaPath().c_str()),
-        .cert = mg_unpacked(ptcpipsrv->getCertPath().c_str()),
-        .key  = mg_unpacked(ptcpipsrv->getKeyPath().c_str())
-      };
-      mg_tls_init(conn, &opts);
-    }
+    (void)pDriverObj;
+    spdlog::debug("SERVER accepted a connection");
   }
   else if (ev == MG_EV_READ) {
     struct mg_iobuf* r = &conn->recv;
-    MG_INFO(("SERVER got data: %.*s", r->len, r->buf));
+    spdlog::debug("SERVER got data ({} bytes)", (unsigned long)r->len);
     mg_send(conn, r->buf, r->len); // echo it back
     r->len = 0;                    // Tell Mongoose we've consumed data
   }
   else if (ev == MG_EV_CLOSE) {
-    MG_INFO(("SERVER disconnected"));
+    spdlog::debug("SERVER disconnected");
   }
   else if (ev == MG_EV_ERROR) {
-    MG_INFO(("SERVER error: %s", (char*)ev_data));
+    spdlog::debug("SERVER error");
   }
 }
 
@@ -1888,14 +1870,7 @@ serverCallbackFunc(struct mg_connection* conn, int ev, void* ev_data)
 void*
 tcpipWorkerThread(void* pData)
 {
-  size_t i;
   struct mg_mgr mgr;
-  struct mg_connection* conn;
-  struct socket* psocket = nullptr;
-  struct mg_tls_opts opts;
-  struct pollfd* pfd;
-  memset(&opts, 0, sizeof(opts));
-
   CTcpipSrvDrv* ptcpipsrvdrv = (CTcpipSrvDrv*)pData;
   if (NULL == ptcpipsrvdrv) {
     spdlog::critical(
@@ -1903,19 +1878,22 @@ tcpipWorkerThread(void* pData)
     return NULL;
   }
 
+  mg_mgr_init(&mgr);
+
   // Bind to selected interface
   if (0 == mg_listen(&mgr,
-                     pListenObj->m_strListenInterface.c_str(),
+                     ptcpipsrvdrv->getListeningInterface().c_str(),
                      serverCallbackFunc,
                      ptcpipsrvdrv)) {
     spdlog::error("[TCP/IP srv thread] Failed to init listening socket.");
+    mg_mgr_free(&mgr);
     return NULL;
   }
 
   spdlog::debug("[TCP/IP srv listen thread] Started.");
 
   // Work on
-  while (!pListenObj->m_nStopTcpIpSrv) {
+  while (!ptcpipsrvdrv->shouldQuit()) {
 
     // Poll all open sockets
     mg_mgr_poll(&mgr, 100);
@@ -2011,11 +1989,7 @@ tcpipWorkerThread(void* pData)
 
   } // poll
 
-  // pollres = 0;
-
-} // While
-
-spdlog::debug("[TCP/IP srv listen thread] Preparing Exit.");
+  spdlog::debug("[TCP/IP srv listen thread] Preparing Exit.");
 
 // Wait for clients to terminate
 //   int loopCnt = 0;
@@ -2036,8 +2010,8 @@ spdlog::debug("[TCP/IP srv listen thread] Preparing Exit.");
 
 // stcp_close_all_listening_sockets(&pListenObj->m_srvctx);
 
-// Free resources
-mg_mgr_free(&mgr);
+  // Free resources
+  mg_mgr_free(&mgr);
 
 // * * * Deallocate allocated security options * * *
 
@@ -2054,6 +2028,6 @@ mg_mgr_free(&mgr);
 // if (pObj->m_j_config.value("ssl_certificate", "").length()) {
 //   stcp_uninit_ssl();
 // }
-spdlog::debug("[TCP/IP srv listen thread] Exit.");
-return NULL;
+  spdlog::debug("[TCP/IP srv listen thread] Exit.");
+  return NULL;
 }
