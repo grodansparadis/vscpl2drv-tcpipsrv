@@ -1,6 +1,6 @@
 # vscpl2drv-tcpipsrv
 
-<img src="https://vscp.org/images/logo.png" width="100">
+![](https://github.com/grodansparadis/vscp-logo/blob/master/logo-128x128.png)
 
 
   * **Available for**: Linux, Windows
@@ -8,7 +8,7 @@
   * **Driver Windows**: vscpl2drv-tcpipsrv.dll
   * **Driver MacOS**: vscpl2drv-tcpipsrv.dylib
 
-![](./docs/images/xmap-vscpl2drv-websocksrv.png)
+![](./docs/images/xmap-vscpl2drv-tcpipsrv.png)
 
 ## Introduction
 
