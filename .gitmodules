@@ -24,3 +24,6 @@
 [submodule "third_party/civetweb"]
 	path = third_party/civetweb
 	url = https://github.com/civetweb/civetweb.git
+[submodule "third-party/mustache"]
+	path = third-party/mustache
+	url = https://github.com/kainjow/mustache.git

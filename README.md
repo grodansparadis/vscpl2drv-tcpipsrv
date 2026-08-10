@@ -3,7 +3,7 @@
 ![](https://github.com/grodansparadis/vscp-logo/blob/master/logo-128x128.png)
 
 
-  * **Available for**: Linux, Windows
+  * **Available for**: Linux, Windows, Macintosh
   * **Driver Linux**: libvscpl2drv-tcpipsrv.so
   * **Driver Windows**: vscpl2drv-tcpipsrv.dll
   * **Driver MacOS**: vscpl2drv-tcpipsrv.dylib

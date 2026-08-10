@@ -128,7 +128,7 @@ include(GNUInstallDirs)
 
 # --- Path to vscp --- 
 if (NOT DEFINED VSCP_PATH)
-  set (VSCP_PATH "${PROJECT_SOURCE_DIR}/third_party/vscp")
+  set (VSCP_PATH "${PROJECT_SOURCE_DIR}/third-party/vscp")
 endif()
 
 if(WIN32)
@@ -250,36 +250,36 @@ add_library(vscpl2drv-tcpipsrv
   ./src/tcpipsrvdrv.cpp
   ./src/tcpipsrv.h
   ./src/tcpipsrv.cpp 
-  ./third_party/vscp/src/vscp/common/userlist.h
-  ./third_party/vscp/src/vscp/common/userlist.cpp
-  ./third_party/vscp/src/vscp/common/clientlist.h
-  ./third_party/vscp/src/vscp/common/clientlist.cpp 
-  ./third_party/vscp/src/vscp/common/vscp.h
-  ./third_party/vscp/src/vscp/common/vscpdatetime.h
-  ./third_party/vscp/src/vscp/common/vscpdatetime.cpp
-  ./third_party/vscp/src/vscp/common/guid.h
-  ./third_party/vscp/src/vscp/common/guid.cpp
-  ./third_party/vscp/src/vscp/common/mdf.h
-  ./third_party/vscp/src/vscp/common/mdf.cpp
-  ./third_party/vscp/src/vscp/common/vscphelper.h
-  ./third_party/vscp/src/vscp/common/vscphelper.cpp
-  ./third_party/vscp/src/vscp/common/canal.h
-  ./third_party/vscp/src/common/vscpbase64.h
-  ./third_party/vscp/src/common/vscpbase64.c
-  ./third_party/vscp/src/common/vscp-aes.h
-  ./third_party/vscp/src/common/vscp-aes.c
-  ./third_party/vscp/src/common/crc.h
-  ./third_party/vscp/src/common/crc.c
-  ./third_party/vscp/src/common/crc8.h
-  ./third_party/vscp/src/common/crc8.c
-  ./third_party/vscp/src/common/vscpmd5.h
-  ./third_party/vscp/src/common/vscpmd5.c
-  ./third_party/crypto-algorithms/sha256.h
-  ./third_party/crypto-algorithms/sha256.c
-  ./third_party/mongoose/mongoose.c
-  ./third_party/mongoose/mongoose.h   
-  ./third_party/vscp/third_party/mustache/mustache.hpp
-  ./third_party/vscp/third_party/spdlog/include   
+  ./third-party/vscp/src/vscp/common/userlist.h
+  ./third-party/vscp/src/vscp/common/userlist.cpp
+  ./third-party/vscp/src/vscp/common/clientlist.h
+  ./third-party/vscp/src/vscp/common/clientlist.cpp 
+  ./third-party/vscp/src/vscp/common/vscp.h
+  ./third-party/vscp/src/vscp/common/vscpdatetime.h
+  ./third-party/vscp/src/vscp/common/vscpdatetime.cpp
+  ./third-party/vscp/src/vscp/common/guid.h
+  ./third-party/vscp/src/vscp/common/guid.cpp
+  ./third-party/vscp/src/vscp/common/mdf.h
+  ./third-party/vscp/src/vscp/common/mdf.cpp
+  ./third-party/vscp/src/vscp/common/vscphelper.h
+  ./third-party/vscp/src/vscp/common/vscphelper.cpp
+  ./third-party/vscp/src/vscp/common/canal.h
+  ./third-party/vscp/src/common/vscpbase64.h
+  ./third-party/vscp/src/common/vscpbase64.c
+  ./third-party/vscp/src/common/vscp-aes.h
+  ./third-party/vscp/src/common/vscp-aes.c
+  ./third-party/vscp/src/common/crc.h
+  ./third-party/vscp/src/common/crc.c
+  ./third-party/vscp/src/common/crc8.h
+  ./third-party/vscp/src/common/crc8.c
+  ./third-party/vscp/src/common/vscpmd5.h
+  ./third-party/vscp/src/common/vscpmd5.c
+  ./third-party/crypto-algorithms/sha256.h
+  ./third-party/crypto-algorithms/sha256.c
+  ./third-party/mongoose/mongoose.c
+  ./third-party/mongoose/mongoose.h   
+  ./third-party/vscp/third_party/mustache/mustache.hpp
+  ./third-party/vscp/third_party/spdlog/include   
 ) 
 
 # Set compile definitions for the target
@@ -302,13 +302,13 @@ if (WIN32)
   find_path(PTHREAD_INCLUDE_DIR pthread.h)
 
   include_directories( PUBLIC src/
-    ./third_party/vscp/src/vscp/common/  
-    ./third_party/vscp/src/common/
-    ./third_party/mongoose/
-    ./third_party/json/single_include/
-    ./third_party/Mustache/
-    ./third_party/spdlog/include/
-    ./third_party/crypto-algorithms/
+    ./third-party/vscp/src/vscp/common/  
+    ./third-party/vscp/src/common/
+    ./third-party/mongoose/
+    ./third-party/json/single_include/
+    ./third-party/mustache/
+    ./third-party/spdlog/include/
+    ./third-party/crypto-algorithms/
     ${PThreads4W_INCLUDE_DIR}
     ${CMAKE_BINARY_DIR}
     ${OPENSSL_INCLUDE_DIR}
@@ -316,13 +316,13 @@ if (WIN32)
     ${LOCAL_SYSLOG_INCLUDE} )
 else()
   include_directories( PUBLIC src/
-    ./third_party/vscp/src/vscp/common/
-    ./third_party/vscp/src/common
-    ./third_party/mongoose/
-    ./third_party/json/single_include/
-    ./third_party/Mustache/
-    ./third_party/spdlog/include/
-    ./third_party/crypto-algorithms/
+    ./third-party/vscp/src/vscp/common/
+    ./third-party/vscp/src/common
+    ./third-party/mongoose/
+    ./third-party/json/single_include/
+    ./third-party/mustache/
+    ./third-party/spdlog/include/
+    ./third-party/crypto-algorithms/
     ${CMAKE_BINARY_DIR}
     ${OPENSSL_INCLUDE_DIR}
     ${LOCAL_SYSLOG_INCLUDE} )
