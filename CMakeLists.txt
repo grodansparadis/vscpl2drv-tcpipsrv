@@ -278,8 +278,7 @@ add_library(vscpl2drv-tcpipsrv
   ./third_party/crypto-algorithms/sha256.c
   ./third-party/mongoose/mongoose.c
   ./third-party/mongoose/mongoose.h   
-  ./third-party/vscp/third_party/mustache/mustache.hpp
-  ./third-party/vscp/third_party/spdlog/include   
+  ./third-party/vscp/third-party/mustache/mustache.hpp
 ) 
 
 # Set compile definitions for the target
