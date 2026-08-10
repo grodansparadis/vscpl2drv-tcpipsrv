@@ -249,7 +249,6 @@ add_library(vscpl2drv-tcpipsrv
   ./src/tcpipsrvdrv.h
   ./src/tcpipsrvdrv.cpp
   ./src/tcpipsrv.h
-  ./src/tcpipsrv.cpp 
   ./third-party/vscp/src/vscp/common/userlist.h
   ./third-party/vscp/src/vscp/common/userlist.cpp
   ./third-party/vscp/src/vscp/common/clientlist.h
