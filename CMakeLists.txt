@@ -274,8 +274,8 @@ add_library(vscpl2drv-tcpipsrv
   ./third-party/vscp/src/common/crc8.c
   ./third-party/vscp/src/common/vscpmd5.h
   ./third-party/vscp/src/common/vscpmd5.c
-  ./third-party/crypto-algorithms/sha256.h
-  ./third-party/crypto-algorithms/sha256.c
+  ./third_party/crypto-algorithms/sha256.h
+  ./third_party/crypto-algorithms/sha256.c
   ./third-party/mongoose/mongoose.c
   ./third-party/mongoose/mongoose.h   
   ./third-party/vscp/third_party/mustache/mustache.hpp
@@ -308,7 +308,7 @@ if (WIN32)
     ./third-party/json/single_include/
     ./third-party/mustache/
     ./third-party/spdlog/include/
-    ./third-party/crypto-algorithms/
+    ./third_party/crypto-algorithms/
     ${PThreads4W_INCLUDE_DIR}
     ${CMAKE_BINARY_DIR}
     ${OPENSSL_INCLUDE_DIR}
@@ -322,7 +322,7 @@ else()
     ./third-party/json/single_include/
     ./third-party/mustache/
     ./third-party/spdlog/include/
-    ./third-party/crypto-algorithms/
+    ./third_party/crypto-algorithms/
     ${CMAKE_BINARY_DIR}
     ${OPENSSL_INCLUDE_DIR}
     ${LOCAL_SYSLOG_INCLUDE} )
