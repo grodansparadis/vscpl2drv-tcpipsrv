@@ -45,6 +45,7 @@
 
 #include "vscpl2drv-tcpipsrv.h"
 #include "tcpipsrvdrv.h"
+#include "drvlog.h"
 
 #ifdef WIN32
 #else

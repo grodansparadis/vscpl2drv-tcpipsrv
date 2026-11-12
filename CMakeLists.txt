@@ -248,11 +248,13 @@ add_library(vscpl2drv-tcpipsrv
   ./src/vscpl2drv-tcpipsrv.cpp
   ./src/tcpipsrvdrv.h
   ./src/tcpipsrvdrv.cpp
-  ./src/tcpipsrv.h
-  ./third-party/vscp/src/vscp/common/userlist.h
-  ./third-party/vscp/src/vscp/common/userlist.cpp
-  ./third-party/vscp/src/vscp/common/clientlist.h
-  ./third-party/vscp/src/vscp/common/clientlist.cpp 
+  ./src/tcpipsession.h
+  ./src/tcpipsession.cpp
+  ./src/drvlog.h
+  ./src/userlist.h
+  ./src/userlist.cpp
+  ./src/clientlist.h
+  ./src/clientlist.cpp
   ./third-party/vscp/src/vscp/common/vscp.h
   ./third-party/vscp/src/vscp/common/vscpdatetime.h
   ./third-party/vscp/src/vscp/common/vscpdatetime.cpp
@@ -262,6 +264,9 @@ add_library(vscpl2drv-tcpipsrv
   ./third-party/vscp/src/vscp/common/mdf.cpp
   ./third-party/vscp/src/vscp/common/vscphelper.h
   ./third-party/vscp/src/vscp/common/vscphelper.cpp
+  ./third-party/vscp/src/vscp/common/vscphelperlogging.cpp
+  ./third-party/vscp/src/vscp/common/vscphelperlogging-forward.cpp
+  ./third-party/vscp/src/common/vscphelper-common.cpp
   ./third-party/vscp/src/vscp/common/canal.h
   ./third-party/vscp/src/common/vscpbase64.h
   ./third-party/vscp/src/common/vscpbase64.c
@@ -277,7 +282,7 @@ add_library(vscpl2drv-tcpipsrv
   ./third-party/crypto-algorithms/sha256.c
   ./third-party/mongoose/mongoose.c
   ./third-party/mongoose/mongoose.h   
-  ./third-party/vscp/third-party/mustache/mustache.hpp
+  ./third-party/mustache/mustache.hpp
 ) 
 
 # Set compile definitions for the target

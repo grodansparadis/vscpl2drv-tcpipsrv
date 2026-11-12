@@ -117,6 +117,35 @@ means that all events with class 10 and type 6 and any GUID with last byte set t
 
 All values can be give in decimal or hexadecimal (preceded number with '0x'). GUID is always given in hexadecimal (without preceded '0x').
 
+## binary
+Settings for binary mode. After logging in with the text protocol a client can send the **BINARY** command to switch the connection to the [VSCP general binary protocol](https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_over_binary). Binary records are framed as a two byte big endian length followed by the frame.
+
+```json
+"binary" : {
+  "enable" : true,
+  "encryption" : "aes256",
+  "key" : "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "hmac-key" : "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+}
+```
+
+| Setting | Description |
+| ------- | ----------- |
+| enable | Allow the BINARY command. **Default**: true. |
+| encryption | *none*, *aes128*, *aes192* or *aes256*. **Default**: none. |
+| key | AES key as hex, exactly 32, 48 or 64 characters for AES-128, AES-192 or AES-256. |
+| hmac-key | HMAC-SHA-256 key as hex, exactly 64 characters. Must be different from **key**. |
+
+With encryption set, every binary record must be a version 1 authenticated frame: AES-CBC encrypted and authenticated with HMAC-SHA-256 (encrypt-then-MAC, 128 bit tag) as described in the specification. The server checks the tag before it decrypts anything. A record that fails authentication, uses another algorithm or is not encrypted closes the connection; there is no fallback to unencrypted frames. All frames are covered: events, commands, replies and event confirmations. The **TEXT** command (back to text mode) is refused when encryption is set, as it would leave the protection.
+
+The text login before **BINARY** is not covered by the binary encryption; use TLS if the network can not be trusted. The tag gives no replay protection.
+
+Without encryption only plain binary frames are accepted. If the binary settings are invalid (wrong key length, non hex characters, same AES and HMAC key) the driver does not start.
+
+Clients: the VSCP library tcp/ip client (`vscpClientTcp`, options *binary-mode*, *binary-encryption*, *binary-key* and *binary-hmac-key*) and VSCP Works (tcp/ip connection, binary mode settings) use the same format.
+
+Supported binary commands: NOOP, QUIT, RETR, OPEN, CLOSE, CHKDATA, CLEAR, VERSION, WCYD and TEXT. Other commands get a *not supported* reply. Events are sent asynchronously after **OPEN**; before that they are kept in the input queue for **RETR** and **CHKDATA**. Received events are confirmed with an event confirm reply.
+
 ## TLS/SSL
 Settings for TLS (Transport Layer Security), SSL.  
 

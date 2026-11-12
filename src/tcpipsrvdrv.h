@@ -45,7 +45,7 @@
 #include <time.h>
 
 #include "clientlist.h"
-#include "tcpipsrv.h"
+#include "userlist.h"
 #include <canal-macro.h>
 #include <canal.h>
 #include <dllist.h>
@@ -86,8 +86,20 @@ const uint16_t MAX_ITEMS_IN_QUEUE = 32000;
 // class CWrkReceiveTread;
 class CHLO;
 class CClientItem;
+class CTcpipSession;
+struct mg_connection;
+
+// Set to 1 for extra debug output from the tcp/ip server
+#ifndef __VSCP_DEBUG_TCP
+#define __VSCP_DEBUG_TCP 0
+#endif
 
 class CTcpipSrvDrv {
+
+  // A session works directly on the client and user lists, the receive
+  // queue and the configuration of the driver
+  friend class CTcpipSession;
+
 public:
   /// Constructor
   CTcpipSrvDrv();
@@ -175,6 +187,40 @@ public:
   void setKeyPath(const std::string& key_path) { m_key_path = key_path; }
 
   std::string getListeningInterface(void) const { return m_strListenInterface; }
+
+  /// True if the server uses TLS (a certificate is configured)
+  bool isTlsEnabled(void) const { return !m_tlsCert.empty(); }
+
+  /*!
+    Start TLS on an accepted connection
+    @param conn The connection
+    @return true on success
+  */
+  bool initTls(struct mg_connection* conn);
+
+  /*!
+    Read the TLS certificate, key and CA files if configured
+    @return true on success or if TLS is not configured
+  */
+  bool loadTlsFiles(void);
+
+  /// True if clients may switch to binary mode with the BINARY command
+  bool isBinaryEnabled(void) const { return m_bBinaryEnable; }
+
+  /*!
+    True if binary mode is encrypted and authenticated. Then every binary
+    record must be a version 1 authenticated frame (AES + HMAC-SHA-256).
+  */
+  bool isBinaryAuthenticated(void) const { return VSCP_ENCRYPTION_NONE != m_binaryEncryption; }
+
+  /// Binary mode encryption algorithm (VSCP_ENCRYPTION_xxx)
+  uint8_t getBinaryEncryption(void) const { return m_binaryEncryption; }
+
+  /// Binary mode AES key (32 bytes, the algorithm sets how many are used)
+  const uint8_t* getBinaryAesKey(void) const { return m_binaryAesKey; }
+
+  /// Binary mode HMAC-SHA-256 key (32 bytes)
+  const uint8_t* getBinaryHmacKey(void) const { return m_binaryHmacKey; }
   bool shouldQuit(void) const { return m_bQuit; }
   void requestQuit(void) { m_bQuit = true; }
 
@@ -195,6 +241,9 @@ private:
 
   // Runtime state
   bool m_bQuit;
+
+  /// True while the server thread is running (it must be joined)
+  bool m_bThreadRunning;
   bool m_bReceiveOwnEvents;
   pthread_t m_tcpipListenThread;
 
@@ -238,6 +287,31 @@ private:
 
   /// Path to key
   std::string m_key_path;
+
+  /////////////////////////////////////////////////////////
+  //                    Binary mode
+  /////////////////////////////////////////////////////////
+
+  /// Allow the BINARY command
+  bool m_bBinaryEnable;
+
+  /// Binary mode encryption (NONE = plain binary frames)
+  uint8_t m_binaryEncryption;
+
+  /// Binary mode keys
+  uint8_t m_binaryAesKey[32];
+  uint8_t m_binaryHmacKey[32];
+
+  /*!
+    Parse the "binary" configuration object
+    @return true if valid (or not present)
+  */
+  bool readBinaryConfig(void);
+
+  /// TLS certificate, key and CA (PEM content, loaded at start)
+  std::string m_tlsCert;
+  std::string m_tlsKey;
+  std::string m_tlsCa;
 
   /////////////////////////////////////////////////////////
   //                      Logging

@@ -309,16 +309,15 @@ The configuration file have the following format
   "path-users" : "/home/akhe/development/VSCP/vscpl2drv-tcpipsrv/debug/users.json",
   "receive-sent-events" : true,
   "tls" : {
-    "certificate" : "",
-    "certificate-chain" : "",
-    "verify-peer" : false,
-    "ca-path" : "",
-    "ca-file" : "",
-    "verify-depth" : 9,
-    "default-verify-paths" : true,
-    "cipher-list" : "DES-CBC3-SHA:AES128-SHA:AES128-GCM-SHA256",
-    "protocol-version" : 3,
-    "short-trust" : false
+    "cert" : "",
+    "key" : "",
+    "ca" : ""
+  },
+  "binary" : {
+    "enable" : true,
+    "encryption" : "none",
+    "key" : "",
+    "hmac-key" : ""
   },
   "logging" : {
     "file-enable-log": true,
@@ -369,7 +368,9 @@ if "tcp:// part is omitted the content is treated as it was present.
 
 If port is omitted, default 9598 is used.
 
-For TLS/SSL use prefix "stcp://"
+The forms *9598* (all interfaces), *host:9598* and *tcp://host:9598* are accepted.
+
+For TLS use the prefix "stcp://" and set a certificate in the **tls** section. With "stcp://" the driver refuses to start if no certificate is configured. A certificate in the **tls** section enables TLS also with "tcp://".
 
 ##### encryption
 Response and commands from/to the tcp/ip link server can be encrypted using AES-128, AES-192 or AES-256. Set here as
@@ -386,76 +387,55 @@ The format for the user file is specified below.
 ##### receive-sent-events
 If set to true events sent by the driver will be received by the driver itself. This is useful for debugging and testing and may be used to verify that events are sent correctly. If set to false sent events are not received by the driver. However the **CHKDATA** command will still show sent events in it's count. This behavior may be changed ion the future.
 
+##### binary
+Settings for binary mode. After logging in with the text protocol a client can send the **BINARY** command to switch the connection to the [VSCP general binary protocol](https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_over_binary). Binary records are framed as a two byte big endian length followed by the frame.
+
+```json
+"binary" : {
+  "enable" : true,
+  "encryption" : "aes256",
+  "key" : "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "hmac-key" : "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+}
+```
+
+| Setting | Description |
+| ------- | ----------- |
+| enable | Allow the BINARY command. **Default**: true. |
+| encryption | *none*, *aes128*, *aes192* or *aes256*. **Default**: none. |
+| key | AES key as hex, exactly 32, 48 or 64 characters for AES-128, AES-192 or AES-256. |
+| hmac-key | HMAC-SHA-256 key as hex, exactly 64 characters. Must be different from **key**. |
+
+With encryption set, every binary record must be a version 1 authenticated frame: AES-CBC encrypted and authenticated with HMAC-SHA-256 (encrypt-then-MAC, 128 bit tag) as described in the specification. The server checks the tag before it decrypts anything. A record that fails authentication, uses another algorithm or is not encrypted closes the connection; there is no fallback to unencrypted frames. All frames are covered: events, commands, replies and event confirmations. The **TEXT** command (back to text mode) is refused when encryption is set, as it would leave the protection.
+
+The text login before **BINARY** is not covered by the binary encryption; use TLS if the network can not be trusted. The tag gives no replay protection.
+
+Without encryption only plain binary frames are accepted. If the binary settings are invalid (wrong key length, non hex characters, same AES and HMAC key) the driver does not start.
+
+Clients: the VSCP library tcp/ip client (`vscpClientTcp`, options *binary-mode*, *binary-encryption*, *binary-key* and *binary-hmac-key*) and VSCP Works (tcp/ip connection, binary mode settings) use the same format.
+
+Supported binary commands: NOOP, QUIT, RETR, OPEN, CLOSE, CHKDATA, CLEAR, VERSION, WCYD and TEXT. Other commands get a *not supported* reply. Events are sent asynchronously after **OPEN**; before that they are kept in the input queue for **RETR** and **CHKDATA**. Received events are confirmed with an event confirm reply.
+
 ##### TLS/SSL
-Settings for TLS (Transport Layer Security), SSL.  Not used at the moment.
+Settings for TLS (Transport Layer Security).
 
-As TLS/SSL is not supported yet (it will be) in this driver it is important to understand that if used in an open environment like the internet it is not secure. People listening on the traffic can see both data and username/password credentials. It is therefore important to use the driver in a controlled environment and as early as possible move the flow of events to a secure environment like MQTT with TLS activated. This is often not a problem in a local cable based environment but is definitely a problem using wireless transmission that lack encryption.
+```json
+"tls" : {
+  "cert" : "/etc/vscp/certs/tcpipsrv.pem",
+  "key" : "/etc/vscp/certs/tcpipsrv.key",
+  "ca" : ""
+}
+```
 
-A solution is to use a SSL wrapper like [this one](https://github.com/cesanta/ssl_wrapper). 
+| Setting | Description |
+| ------- | ----------- |
+| cert | Path to the server certificate (PEM). Setting it enables TLS. |
+| key | Path to the private key (PEM). If not set the key is read from the **cert** file. |
+| ca | Path to a CA certificate (PEM). If set, clients must present a certificate signed by it. |
 
-##### ssl_certificate
-Path to SSL certificate file. This option is only required when at least one of the listening_ports is SSL The file must be in PEM format, and it must have both private key and certificate, see for example ssl_cert.pem. If this option is set, then the webserver serves SSL connections on the port set up to listen on.
+See [self signed server certificates](./docs/self_signed_server_certificates.md) for how to create a certificate for testing.
 
-**Default**: /srv/vscp/certs/server.pem
-
-##### ssl_certificate_chain
-T.B.D.
-
-##### ssl_verify_peer
-Enable client's certificate verification by the server.
-
-**Default**: false
-
-##### ssl_ca_path
-Name of a directory containing trusted CA certificates for peers. Each file in the directory must contain only a single CA certificate. The files must be named by the subject name’s hash and an extension of “.0”. If there is more than one certificate with the same subject name they should have extensions ".0", ".1", ".2" and so on respectively.
-
-##### ssl_ca_file"
-Path to a .pem file containing trusted certificates for peers. The file may contain more than one certificate.
-
-##### ssl_verify_depth
-Sets maximum depth of certificate chain. If client's certificate chain is longer than the depth set here connection is refused.
-
-**Default**: 9
-
-##### ssl_default_verify_paths
-Loads default trusted certificates locations set at openssl compile time.
-
-**Default**: true
-
-##### ssl_cipher_list
-List of ciphers to present to the client. Entries should be separated by colons, commas or spaces.
-
-| Selection	| Description |
-| ========= | =========== |
-| ALL |	All available ciphers |
-| ALL:!eNULL | All ciphers excluding NULL ciphers |
-| AES128:!MD5 | AES 128 with digests other than MD5 |
-
-See [this entry in OpenSSL documentation](https://www.openssl.org/docs/manmaster/apps/ciphers.html) for full list of options and additional examples.
-
-**Default**: "DES-CBC3-SHA:AES128-SHA:AES128-GCM-SHA256",
-
-##### ssl_protocol_version
-Sets the minimal accepted version of SSL/TLS protocol according to the table:
-
-| Selected protocols | setting |
-| ------------------ | ------- |
-| SSL2+SSL3+TLS1.0+TLS1.1+TLS1.2 | 0 |
-| SSL3+TLS1.0+TLS1.1+TLS1.2 | 1 |
-| TLS1.0+TLS1.1+TLS1.2 | 2 |
-| TLS1.1+TLS1.2	| 3 |
-| TLS1.2 | 4 |
-
-**Default**: 4.
-
-##### ssl_short_trust
-Enables the use of short lived certificates. This will allow for the certificates and keys specified in ssl_certificate, ssl_ca_file and ssl_ca_path to be exchanged and reloaded while the server is running.
-
-In an automated environment it is advised to first write the new pem file to a different filename and then to rename it to the configured pem file name to increase performance while swapping the certificate.
-
-Disk IO performance can be improved when keeping the certificates and keys stored on a tmpfs (linux) on a system with very high throughput.
-
-**Default**: false
+Without TLS, data and the username/password credentials of the text login are sent in clear text. Use TLS, or binary mode with encryption for the event traffic, when the network can not be trusted.
 
 ### Logging
 In this section is the log console and log file settings. Before the configuration file is read logging will be sent to the console. 

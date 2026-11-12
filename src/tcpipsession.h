@@ -26,25 +26,19 @@
 // SOFTWARE.
 //
 
-#if !defined(VSCP_TCPIPSRV_H__INCLUDED_)
-#define VSCP_TCPIPSRV_H__INCLUDED_
+#if !defined(VSCP_TCPIPSESSION_H__INCLUDED_)
+#define VSCP_TCPIPSESSION_H__INCLUDED_
 
 #include <deque>
+#include <string>
+#include <vector>
 
 #include <mongoose.h>
 
-// #include<sockettcp.h>
 #include "clientlist.h"
+#include "userlist.h"
 
-typedef const char* (*COMMAND_METHOD)(void);
-
-// Forward declarations
-class CTcpipSessionDrv;
-
-#define __VSCP_DEBUG_TCP 1
-
-#define VSCP_TCPIP_SRV_RUN  0
-#define VSCP_TCPIP_SRV_STOP 1
+class CTcpipSrvDrv;
 
 #define VSCP_TCPIP_COMMAND_LIST_MAX 200 // Max number of saved old commands
 
@@ -52,7 +46,33 @@ class CTcpipSessionDrv;
 #define VSCP_TCPIP_RV_ERROR -1
 #define VSCP_TCPIP_RV_CLOSE 99 // Connection should be closed.
 
-#define VSCP_TCP_MAX_CLIENTS 1024
+/// Close a client connection after this many seconds without activity
+#define TCPIPSRV_INACTIVITY_TIMEOUT (3600 * 12)
+
+/// Max length of a command line. Longer lines close the connection.
+#define TCPIPSRV_MAX_LINE_LENGTH (64 * 1024)
+
+#define MSG_BINARY_MODE "+OK - Binary mode entered.\r\n"
+
+/// Binary protocol command codes (VSCP-GBP)
+#define VSCP_BINARY_CMD_NOOP          0
+#define VSCP_BINARY_CMD_QUIT          1
+#define VSCP_BINARY_CMD_USER          2
+#define VSCP_BINARY_CMD_PASS          3
+#define VSCP_BINARY_CMD_CHALLENGE     4
+#define VSCP_BINARY_CMD_SEND          5
+#define VSCP_BINARY_CMD_RETR          6
+#define VSCP_BINARY_CMD_OPEN          7
+#define VSCP_BINARY_CMD_CLOSE         8
+#define VSCP_BINARY_CMD_CHKDATA       9
+#define VSCP_BINARY_CMD_CLEAR         10
+#define VSCP_BINARY_CMD_VERSION       16
+#define VSCP_BINARY_CMD_WCYD          21
+#define VSCP_BINARY_CMD_TEXT          24
+#define VSCP_BINARY_CMD_EVENT_CONFIRM 0xffff
+
+/// Max number of events returned for one binary RETR
+#define VSCP_BINARY_RETR_MAX 64
 
 #define MSG_WELCOME       "Welcome to the VSCP tcp/ip server [l2drv].\r\n"
 #define MSG_OK            "+OK - Success.\r\n"
@@ -131,563 +151,183 @@ class CTcpipSessionDrv;
 /*!
     Class that defines one command
 */
-typedef struct {
-  std::string m_strCmd;    // Command name
-  uint8_t m_securityLevel; // Security level for command (0-15)
-} structCommand;
 
 // ----------------------------------------------------------------------------
 
 /*!
-    This class implement the worker thread for
-    the vscpd connections on the TCP interface
+  One client connection on the tcp/ip interface.
+
+  All methods are called from the mongoose event loop thread of the driver,
+  which owns the connection, so no locking is needed for the connection
+  itself. Events from the driver reach the client through the input queue
+  of its client item.
 */
 
 class CTcpipSession {
 
 public:
-  /// Constructor
-  CTcpipSession(void);
-
-  /// Destructor
+  /*!
+    Create a session for an accepted connection
+    @param pObj Driver object
+    @param conn The mongoose connection
+  */
+  CTcpipSession(CTcpipSrvDrv* pObj, struct mg_connection* conn);
   ~CTcpipSession();
 
   /*!
-    @brief Add event to the input queue
-    @param pEvent Pointer to the VSCP event to add to the input queue
-    @return VSCP_ERROR_SUCCESS on success, otherwise VSCP error code.
+    Called when the connection has been accepted. Registers the client
+    and sends the welcome message.
+    @return true on success, false if the connection should be closed.
   */
-  int addToInputQueue(const vscpEvent* pEvent);
+  bool onAccept(void);
 
   /*!
-    Put event on receive queue and signal
-    that a new event is available
-
-    @param ex Event to send
-    @return true on success, false on failure
+    Called when data has been received.
+    @param buf Received data
+    @param len Number of bytes
   */
-  bool eventExToReceiveQueue(vscpEventEx& ex);
+  void onRead(const char* buf, size_t len);
 
   /*!
-    Add event to send queue
-   */
-  bool addEvent2SendQueue(const vscpEvent* pEvent);
-
-  /*!
-    Add event to receive queue
+    Called on every poll of the event loop. Sends events in receive loop
+    mode, sends keep alive messages and closes inactive connections.
   */
-  bool addEvent2ReceiveQueue(const vscpEvent* pEvent);
+  void onPoll(void);
 
   /*!
-    Add a new client to the client list
-
-    @param Pointer to client that should be added.
-    @param Normally not used but can be used to set a special
-    client id.
-    @return True on success.
-    */
-  bool addClient(CClientItem* pClientItem, uint32_t id = 0);
-
-  /*!
-    Add a new client to the client list using GUID.
-
-    This add client method is for drivers that specify a
-    full GUID (two lsb nilled).
-
-    @param Pointer to client that should be added.
-    @param guid The guid that is used for the client. Two least
-    significant bytes will be set to zero.
-    @return True on success.
-   */
-  bool addClient(CClientItem* pClientItem, cguid& guid);
-
-  // Send event to host
-  bool sendEvent(CClientItem* pClientItem, vscpEvent* pEvent);
-
-  /*!
-    Send event to specific client
-
-    @param pClientItem Pointer to client that should received event.
-    @param pEvent Pointer to VSCP event that should be sent.
-    @return True on success, false on failure.
+    Called when the connection is closed. Unregisters the client.
   */
-  bool sendEventToClient(CClientItem* pClientItem, const vscpEvent* pEvent);
+  void onClose(void);
+
+  /// True as long as the connection can be used
+  bool isOpen(void) const;
+
+  /// Close the connection after pending data has been sent
+  void close(void);
+
+  bool write(std::string& str, bool bAddCRLF = false);
+  bool write(const char* buf, size_t len);
 
   /*!
-    Send event to all clients
-
-    @param pEvent Pointer to VSCP event that should be sent.
-    @return True on success, false on failure.
+    When a command is received on the TCP/IP interface the command handler
+    is called.
   */
-  bool sendEventAllClients(const vscpEvent* pEvent);
+  int CommandHandler(std::string& strCommand);
 
-  /*!
-    Check if a user has been verified
-    @return true if verified, else false.
-  */
   bool isVerified(void);
-
-  /*!
-    Check if a user has enough privilege
-    @param reqiredPrivilege Privileges required to do operation.
-    @return true if yes, else false.
-  */
   bool checkPrivilege(unsigned long reqiredPrivilege);
-
-  /*!
-    Client send event
-  */
   void handleClientSend(void);
-
-  /*!
-    Client receive
-  */
   void handleClientReceive(void);
-
-  /*!
-    sendOneEventFromQueue
-    @param 	bStatusMsg True if response messages (+OK/-OK) should be sent.
-    Default.
-    @return True on success/false on failure.
-  */
   bool sendOneEventFromQueue(bool bStatusMsg = true);
-
-  /*!
-    @brief Send an event to a specific client
-    @param pClientItem Pointer to the client item
-    @param pEvent Pointer to the VSCP event
-    @return VSCP_ERROR_SUCCESS on success, otherwise VSCP error code.
-  */
-  int sendEventToClient(CWebSockSession* pSessionItem, const vscpEvent* pEvent);
-
-  /*!
-    @brief Send an event to all connected and authorised clients
-    @param pEvent Pointer to the VSCP event to send
-    @return VSCP_ERROR_SUCCESS on success, otherwise VSCP error code.
-  */
-  int sendEventAllClients(const vscpEvent* pEvent);
-
-  ////////////////////////////////////////////////
-  //           Client command handlers
-  ////////////////////////////////////////////////
-
-  /*!
-    Client DataAvailable
-  */
   void handleClientDataAvailable(void);
-
-  /*!
-    Client Clear Input queue
-  */
   void handleClientClearInputQueue(void);
-
-  /*!
-    Client Get statistics
-  */
   void handleClientGetStatistics(void);
-
-  /*!
-    Client get status
-  */
   void handleClientGetStatus(void);
-
-  /*!
-    Client get channel GUID
-  */
   void handleClientGetChannelGUID(void);
-
-  /*!
-    Client set channel ID
-  */
   void handleClientSetChannelGUID(void);
-
-  /*!
-    Client get version
-  */
   void handleClientGetVersion(void);
-
-  /*!
-    Client set filter
-  */
   void handleClientSetFilter(void);
-
-  /*!
-    Client set mask
-  */
   void handleClientSetMask(void);
-
-  /*!
-    Client issue user
-  */
   void handleClientUser(void);
-
-  /*!
-    Client issue password
-  */
   bool handleClientPassword(void);
-
-  /*!
-    Handle challenge
-   */
   void handleChallenge(void);
-
-  /*!
-    Client Get channel ID
-  */
   void handleClientGetChannelID(void);
-
-  /*!
-    Handle RcvLoop
-  */
   void handleClientRcvLoop(void);
-
-  /*!
-    Client Help
-    */
   void handleClientHelp(void);
-
-  /*!
-    Client Test
-    */
   void handleClientTest(void);
-
-  /*!
-    Client Restart
-  */
   void handleClientRestart(void);
-
-  /*!
-    Client Shutdown
-  */
   void handleClientShutdown(void);
-
-  /*!
-    Client REMOTE command
-  */
   void handleClientRemote(void);
-
-  /*!
-    Client CLIENT/INTERFACE command
-  */
   void handleClientInterface(void);
-
-  /*!
-    Client INTERFACE LIST command
-  */
   void handleClientInterface_List(void);
-
-  /*!
-    Client INTERFACE UNIQUE command
-  */
   void handleClientInterface_Unique(void);
-
-  /*!
-    Client INTERFACE NORMAL command
-  */
   void handleClientInterface_Normal(void);
-
-  /*!
-    Client INTERFACE CLOSE command
-  */
   void handleClientInterface_Close(void);
-
-  /*!
-    Client WhatCanYouDo command
-  */
   void handleClientCapabilityRequest(void);
-
-  /*!
-    Handle client measurement
-   */
   void handleClientMeasurement(void);
 
-  ///////////////////////////////////////////////////////
-  //                    Getters / Setters
-  ///////////////////////////////////////////////////////
+  /// Remote address as a string
+  std::string getRemoteAddress(void) const;
 
-  /*!
-    @brief Get the encryption key for this session
-    @return Pointer to the encryption key for this session
-  */
-  const uint8_t* getKey(void) { return m_key; }
+  /// Text command BINARY: switch the connection to binary mode
+  void handleClientBinary(void);
 
-  /*!
-    @brief Set the encryption key for this session
-    @param pKey 16 byte encryption key
-  */
-  void setKey(const uint8_t* pKey)
-  {
-    if (pKey) {
-      memcpy(m_key, pKey, sizeof(m_key));
-    }
-    else {
-      memset(m_key, 0, sizeof(m_key));
-    }
-  }
-
-  int getVersion(void) { return m_version; }
-  void setVersion(int version) { m_version = version; }
-
-  int getConnState(void) { return m_conn_state; }
-  void setConnState(int state) { m_conn_state = state; }
-
-  // Get last active time
-  time_t getLastActiveTime(void) { return lastActiveTime; }
-  void setLastActiveTime(time_t t) { lastActiveTime = t; }
-
-  struct mg_connection* getConnection() { return m_conn; };
-  void setConnection(struct mg_connection* conn) { m_conn = conn; };
-
-  bool isOpen(void) { return m_bOpen; };
-  void setOpen(bool bOpen) { m_bOpen = bOpen; };
-
-  vscpEventFilter* getFilter(void) { return &m_filter; };
-  void setFilter(const vscpEventFilter* pfilter)
-  {
-    vscp_copyVSCPFilter(&m_filter, pfilter);
-  };
-
-  cguid* getGuid() { return &m_guid; };
-  void setGuid(const cguid& guid) { m_guid = guid; };
-
-  CUserItem* getUserItem(void) { return m_pUserItem; };
-  void setUserItem(CUserItem* puser) { m_pUserItem = puser; };
-
-  bool isAuthenticated(void) { return m_bAuthenticated; };
-  void setAuthenticated(bool bAuthenticated)
-  {
-    m_bAuthenticated = bAuthenticated;
-  };
-
-  /*!
-    Parse HLO object
-  */
-  bool parseHLO(uint16_t size, uint8_t* inbuf, CHLO* phlo);
-
-  /*!
-    Handle high level object
-  */
-  bool handleHLO(vscpEvent* pEvent);
-
-  /*!
-    Read variable
-    @param ex Event with variable read request
-    @param json_req JSON request object
-    @return True on success, false on failure.
-  */
-  bool readVariable(vscpEventEx& ex, const json& json_req);
-
-  /*!
-    Write variable
-    @param ex Event with variable write request
-    @param json_req JSON request object
-    @return True on success, false on failure.
-  */
-  bool writeVariable(vscpEventEx& ex, const json& json_req);
-
-  /*!
-    Delete variable
-    @param ex Event with variable delete request
-    @param json_req JSON request object
-    @return True on success, false on failure.
-  */
-  bool deleteVariable(vscpEventEx& ex, const json& json_req);
-
-  /*!
-    Set listening port
-    Examples for IPv4: 80, 443s, 127.0.0.1:3128, 192.0.2.3:8080s
-    Examples for IPv6: [::]:80, [::1]:80
-  */
-  void setListeningInterface(const std::string& str) { m_strInterface = str; };
-  /*!
-    Get listening port
-  */
-  std::string getListeningInterface(void) { return m_strInterface; };
-
-  // Getters/setters for driver object
-  void setDriverObject(CTcpipSessionDrv* pDrvObj) { m_pDrvObj = pDrvObj; };
-  CTcpipSessionDrv* getDriverObject(void) { return m_pDrvObj; };
+  /// Capabilities reported by WCYD
+  uint64_t getCapabilities(void) const;
 
 private:
+  // Handle one complete command line
+  bool handleLine(std::string strCommand);
 
-  // TCP/IP client thread
-  pthread_t m_tcpipClientThread;
+  // Handle received data in text mode
+  void onTextData(void);
 
-  // Clients connected to us
-  CClientList m_clientList;
-
-  /*!
-    Pointer to driver object
-  */
-  CTcpipSessionDrv* m_pDrvObj;
-
-  // * * * Input queue
-
-  // Input Queue (events directed to this client)
-  std::deque<vscpEvent*> m_inputQueue;
-
-  // Semaphore to signal that an event has been received
-#ifdef WIN32
-  HANDLE m_semInputQueue;
-#else
-  sem_t m_semInputQueue;
-#endif
-
-  // Mutex handle that is used for sharing of the client object
-  pthread_mutex_t m_mutexInputQueue;
-
-  // Max size of input queue per client
-  uint16_t m_maxInputQueue; 
-
-  /// interface to listen on
-  std::string m_interface;
-
-  /// Path to user data base (must be present)
-  std::string m_pathUsers;
-
-  /*
-    If true our own sent events will be received, if
-    false they will be masked. The clientid for
-    the channel is used to detect from whom the events
-    originates. obid will be set to this clientid if
-    it is set to zero on send. The command "CHID" command
-    can be used to get the clientid for the channel.
-  */
-  bool m_bReceiveOwnEvents;
-
-  /// Response timeout
-  uint32_t m_responseTimeout;
-
-  /// Filters for input/output
-  vscpEventFilter m_filterIn;
-  vscpEventFilter m_filterOut;
-
-  /// TLS / SSL
-
-  // TSL certificate path for the tcp/ip server
-  std::string m_ca_path;
-
-  // TSL certificate path for the tcp/ip server
-  std::string m_cert_path;
-
-  // TSL key path for the tcp/ip server
-  std::string m_key_path;
+  // Handle received data in binary mode
+  void onBinaryData(const uint8_t* buf, size_t len);
 
   /*!
-      Logged in client
+    Handle one plain binary frame (decrypted if binary mode is authenticated)
+    @return false if the connection should be closed
   */
+  bool handleBinaryFrame(const std::vector<uint8_t>& frame);
+
+  // Handle a binary event frame from the client
+  bool handleBinaryEvent(const std::vector<uint8_t>& frame);
+
+  // Handle a binary command frame from the client
+  bool handleBinaryCommand(const std::vector<uint8_t>& frame);
+
+  // Send one plain binary frame, encrypted if binary mode is authenticated
+  bool sendBinaryFrame(const uint8_t* frame, size_t len);
+
+  // Send a binary reply
+  bool sendBinaryReply(uint16_t command, uint16_t error, const uint8_t* arg = nullptr, size_t arg_len = 0);
+
+  // Send an event as a binary event frame
+  bool sendBinaryEvent(const vscpEvent* pEvent);
+
+  /*!
+    Take the next event for this client from its input queue. Our own events
+    are skipped unless the driver is configured to receive them.
+    @return Event (caller owns it) or nullptr if there is none
+  */
+  vscpEvent* popEvent(void);
+
+  /*!
+    Check, without writing anything, if this client may send an event
+    @return VSCP_ERROR_SUCCESS if allowed, otherwise an error code
+  */
+  int checkSendRights(const vscpEvent* pEvent);
+
+public:
+  /// The mongoose connection (nullptr when closed)
+  struct mg_connection* m_conn;
+
+  /// Driver object
+  CTcpipSrvDrv* m_pObj;
+
+  /// Logged in client
   CClientItem* m_pClientItem;
 
-  // Max size of client queues
-  uint16_t m_maxClientQueueSize; 
-
-  /// Run flag
-  bool m_bQuit;
-
-  /// Our GUID
-  cguid m_guid;
-
-  /// Filter for receive
-  vscpEventFilter m_rxfilter;
-
-  /// Filter for transmit
-  vscpEventFilter m_txfilter;
-
-  // All input is added to the receive buf. as it is
-  // received. Commands are then fetched from this buffer
-  // as we go
+  /// Received data not yet handled
   std::string m_strResponse;
 
-  // Saved return value for last sockettcp operation
   size_t m_rv;
 
-  // Flag for receive loop active
+  /// True when in receive loop mode
   bool m_bReceiveLoop;
 
-  // List of old commands
+  /// Command history
   std::deque<std::string> m_commandArray;
 
-  //**************************************************************************
-  //                                USERS
-  //**************************************************************************
+  /// True when the connection is in binary mode
+  bool m_bBinaryMode;
 
-  // True if authenticated
-  bool m_bAuthenticated; 
+  /// True when events are sent asynchronously in binary mode (OPEN)
+  bool m_bBinaryOpen;
 
-  // User item (NULL if no user)
-  CUserItem* m_pUserItem;
-
-  //**************************************************************************
-  //                                CLIENTS
-  //**************************************************************************
-
-  // Client item (NULL if no client)
-  CClientItem* m_pClientItem; 
-
-  // Time when this session was last active.
-  time_t lastActiveTime;
-
-  // ------------------------------------------------------------------------
-  //                      Send and receive queues
-  // ------------------------------------------------------------------------
-
-  // Maximum number of events in the outgoing queue
-  uint16_t m_maxItemsInClientReceiveQueue;
-
-#ifdef WIN32
-  HANDLE m_semReceiveQueue;
-  HANDLE m_semSendQueue;
-#else
-  sem_t m_semReceiveQueue;
-  sem_t m_semSendQueue;
-#endif
-
-  // Mutex to protect the output queue
-  pthread_mutex_t m_mutexSendQueue;
-  pthread_mutex_t m_mutexReceiveQueue;
-
-  // Queues
-  std::list<vscpEvent*> m_sendQueue;
-  std::list<vscpEvent*> m_receiveQueue;
-
-  /////////////////////////////////////////////////////////
-  //                      TCP/IP server
-  /////////////////////////////////////////////////////////
-
-  /*!
-    Interface GUID
-
-    The GUID for a client have the following form MSB -> LSB
-
-    0xFF 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF 0xFD ip-address ip-address ip-address
-    ip-address Client-ID Client-ID 0 0
-
-    ip-address ver 4 interface IP address
-    Client-ID mapped id for this client
-
-    This is the default address and it can be changed by the client
-    application
-  */
-  cguid m_guid;
-
-  // Enable encryption on tcp/ip interface if enabled.
-  // 0 = Disabled
-  // 1 = AES-128
-  // 2 = AES-192
-  // 3 = AES-256
-  uint8_t m_encryption;
-
-  // Encryption key
-  uint8_t m_key[32] = { 0x2d, 0xbb, 0x07, 0x9a, 0x38, 0x98, 0x5a, 0xf0,
-                        0x0e, 0xbe, 0xef, 0xe2, 0x2f, 0x9f, 0xfa, 0x0e,
-                        0x7f, 0x72, 0xdf, 0x06, 0xeb, 0xe4, 0x45, 0x63,
-                        0xed, 0xf4, 0xa1, 0x07, 0x3c, 0xab, 0xc7, 0xd4 };
-
-  // Mongoose event manager
-  struct mg_mgr m_mgr;
-
-  // Worker thread for tcp/ip connections
-  pthread_t m_tcpipListenThread;
+  /// Received binary data not yet handled
+  std::vector<uint8_t> m_binaryInput;
 };
 
-#endif
+#endif // VSCP_TCPIPSESSION_H__INCLUDED_

@@ -1,4 +1,4 @@
-// tcpipsrv.cpp
+// tcpipsession.cpp
 //
 // This file is part of the VSCP (https://www.vscp.org)
 //
@@ -25,9 +25,11 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 //
-// https://wiki.openssl.org/index.php/Simple_TLS_Server
-// https://wiki.openssl.org/index.php/SSL/TLS_Client
-// https://stackoverflow.com/questions/3919420/tutorial-on-using-openssl-with-pthreads
+
+//
+// One client connection of the VSCP tcp/ip server. The connection is
+// driven by the mongoose event loop of the driver (see tcpipWorkerThread in
+// tcpipsrvdrv.cpp), which calls onAccept, onRead, onPoll and onClose.
 //
 
 #ifdef WIN32
@@ -37,77 +39,85 @@
 #include <list>
 #include <string>
 
-#ifdef WIN32
-#else
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#endif
-
-#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h>
 #include <time.h>
-
-#ifdef WITH_WRAP
-#include <tcpd.h>
-#endif
-
-#ifndef DWORD
-#define DWORD unsigned long
-#endif
 
 #include <mongoose.h>
 #include <vscp.h>
 #include <vscpdatetime.h>
 #include <vscphelper.h>
 
-#include "tcpipsrv.h"
+#include "tcpipsession.h"
+#include <crc.h>
+#include <openssl/crypto.h>
 #include "tcpipsrvdrv.h"
+#include "drvlog.h"
 #include "version.h"
 
 #include <mustache.hpp>
 #include <nlohmann/json.hpp> // Needs C++11  -std=c++11
 
-// https://github.com/nlohmann/json
+#include <spdlog/spdlog.h>
+
 using json = nlohmann::json;
 using namespace kainjow::mustache;
-
-#ifdef WIN32
-#define STRDUP _strdup
-#else
-#define STRDUP strdup
-#endif
-
-#define TCPIPSRV_INACTIVITY_TIMOUT (3600 * 12)
 
 ///////////////////////////////////////////////////////////////////////////////
 // CTcpipSession
 //
-// This thread listens for connection on a TCP socket and starts a new thread
-// to handle client requests
-//
 
-CTcpipSession::CTcpipSession(tcpipListenThreadObj* pParent)
+CTcpipSession::CTcpipSession(CTcpipSrvDrv* pObj, struct mg_connection* conn)
 {
-  m_strResponse.clear();  // For clearness
-  m_rv           = 0;     // No error code
-  m_bReceiveLoop = false; // Not in receive loop
-  m_conn         = NULL;  // No connection yet
-  m_pObj         = NULL;
-  pParent        = pParent;
-
-  if (NULL != pParent) {
-    m_pObj = pParent->getControlObject();
-  }
+  m_conn         = conn;
+  m_pObj         = pObj;
+  m_pClientItem  = nullptr;
+  m_rv           = 0;
+  m_bReceiveLoop = false;
+  m_bBinaryMode  = false;
+  m_bBinaryOpen  = false;
 }
 
 CTcpipSession::~CTcpipSession()
 {
-  pthread_join(m_tcpipClientThread, NULL);
-  m_commandArray.clear(); // TODO remove strings
+  onClose();
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// isOpen
+//
+
+bool
+CTcpipSession::isOpen(void) const
+{
+  return (nullptr != m_conn) && !m_conn->is_closing && !m_conn->is_draining;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// close
+//
+
+void
+CTcpipSession::close(void)
+{
+  if (nullptr != m_conn) {
+    m_conn->is_draining = 1; // Send what is queued, then close
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// getRemoteAddress
+//
+
+std::string
+CTcpipSession::getRemoteAddress(void) const
+{
+  if (nullptr == m_conn) {
+    return std::string();
+  }
+  char buf[100];
+  mg_snprintf(buf, sizeof(buf), "%M", mg_print_ip, &m_conn->rem);
+  return std::string(buf);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -117,8 +127,7 @@ CTcpipSession::~CTcpipSession()
 bool
 CTcpipSession::write(std::string& str, bool bAddCRLF)
 {
-  // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return false;
   }
 
@@ -126,59 +135,240 @@ CTcpipSession::write(std::string& str, bool bAddCRLF)
     str += std::string("\r\n");
   }
 
-  m_rv = stcp_write(m_conn, (const char*)str.c_str(), str.length());
-  if (m_rv != str.length()) {
-    return false;
-  }
-
-  return true;
+  return write(str.c_str(), str.length());
 }
-
-///////////////////////////////////////////////////////////////////////////////
-// write
-//
 
 bool
 CTcpipSession::write(const char* buf, size_t len)
 {
-  // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen() || (nullptr == buf)) {
     return false;
   }
 
-  m_rv = stcp_write(m_conn, (const char*)buf, len);
-  if (m_rv != len) {
+  // mg_send queues the data on the connection; it is sent by the event loop
+  if (!mg_send(m_conn, buf, len)) {
+    m_rv = 0;
     return false;
   }
 
+  m_rv = len;
   return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// read
+// onAccept
 //
 
 bool
-CTcpipSession::read(std::string& str)
+CTcpipSession::onAccept(void)
 {
-  size_t pos;
-
-  // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  m_pClientItem = new (std::nothrow) CClientItem();
+  if (nullptr == m_pClientItem) {
+    drvlog::error("[TCP/IP srv] Memory error, can't allocate client structure.");
     return false;
   }
 
-  if (m_strResponse.npos != (pos = m_strResponse.find('\n'))) {
+  vscpdatetime now;
+  m_pClientItem->m_dtutc         = now;
+  m_pClientItem->m_bOpen         = true;
+  m_pClientItem->m_type          = CLIENT_ITEM_INTERFACE_TYPE_CLIENT_TCPIP;
+  m_pClientItem->m_strDeviceName = "Remote tcp/ip server connection @ [";
+  m_pClientItem->m_strDeviceName += m_pObj->getListeningInterface();
+  m_pClientItem->m_strDeviceName += "]";
+  m_pClientItem->m_clientActivity = (long)time(NULL);
 
-    // Get the string
-    str = m_strResponse.substr(pos + 1);
-    vscp_trim(str);
+  pthread_mutex_lock(&m_pObj->m_clientList.m_mutexItemList);
+  if (!m_pObj->addClient(m_pClientItem)) {
+    pthread_mutex_unlock(&m_pObj->m_clientList.m_mutexItemList);
+    delete m_pClientItem;
+    m_pClientItem = nullptr;
+    drvlog::error("[TCP/IP srv] Failed to add client.");
+    write(MSG_MAX_NUMBER_OF_CLIENTS, strlen(MSG_MAX_NUMBER_OF_CLIENTS));
+    return false;
+  }
+  pthread_mutex_unlock(&m_pObj->m_clientList.m_mutexItemList);
 
-    // Remove string from buffer
-    m_strResponse = m_strResponse.substr(m_strResponse.length() - pos - 1);
+  // Clear the filter (allow everything )
+  vscp_clearVSCPFilter(&m_pClientItem->m_filter);
+
+  std::string str = std::string(MSG_WELCOME);
+  str += std::string("Version: ");
+  str += vscp_str_format("%d.%d.%d-%d", MAJOR_VERSION, MINOR_VERSION, RELEASE_VERSION, BUILD_VERSION);
+  str += std::string("\r\n");
+  str += std::string(DRIVER_COPYRIGHT);
+  str += std::string("\r\n");
+  str += std::string(MSG_OK);
+  write(str.c_str(), str.length());
+
+  drvlog::debug("[TCP/IP srv] Ready to serve client {}.", getRemoteAddress());
+  return true;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// onRead
+//
+
+void
+CTcpipSession::onRead(const char* buf, size_t len)
+{
+  if ((nullptr == m_pClientItem) || !isOpen()) {
+    return;
   }
 
-  return true;
+  m_pClientItem->m_clientActivity = (long)time(NULL);
+
+  if (m_bBinaryMode) {
+    onBinaryData((const uint8_t*)buf, len);
+    return;
+  }
+
+  m_strResponse.append(buf, len);
+  onTextData();
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// onTextData
+//
+
+void
+CTcpipSession::onTextData(void)
+{
+  size_t pos;
+  while (isOpen() && !m_bBinaryMode && (std::string::npos != (pos = m_strResponse.find('\n')))) {
+    std::string strCommand = m_strResponse.substr(0, pos + 1);
+    m_strResponse.erase(0, pos + 1);
+    if (!handleLine(strCommand)) {
+      close();
+      return;
+    }
+  }
+
+  // After BINARY the rest of the data is binary
+  if (m_bBinaryMode) {
+    std::string rest;
+    rest.swap(m_strResponse);
+    if (!rest.empty()) {
+      onBinaryData((const uint8_t*)rest.data(), rest.size());
+    }
+    return;
+  }
+
+  // A line can not grow without bound
+  if (m_strResponse.length() > TCPIPSRV_MAX_LINE_LENGTH) {
+    drvlog::warn("[TCP/IP srv] Command line too long from {}. Closing.", getRemoteAddress());
+    write(MSG_PARAMETER_ERROR, strlen(MSG_PARAMETER_ERROR));
+    close();
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// handleLine
+//
+
+bool
+CTcpipSession::handleLine(std::string strCommand)
+{
+  vscp_trim(strCommand);
+  if (0 == strCommand.length()) {
+    return true;
+  }
+
+  // Command history ("++" lists it, "+" or "+n" repeats a command)
+  if (m_commandArray.size() && ('+' == strCommand[0])) {
+
+    if (vscp_startsWith(strCommand, "++", &strCommand)) {
+      for (int i = (int)m_commandArray.size() - 1; i >= 0; i--) {
+        std::string str = vscp_str_format("%d - %s", (int)(m_commandArray.size() - i - 1), m_commandArray[i].c_str());
+        vscp_trim(str);
+        write(str, true);
+      }
+      return true;
+    }
+
+    size_t n = 0;
+    if (strCommand.length() > 1) {
+      n = vscp_readStringValue(strCommand.substr(1));
+    }
+    if (n >= m_commandArray.size()) {
+      n = m_commandArray.size() - 1;
+    }
+    strCommand = m_commandArray[m_commandArray.size() - n - 1];
+    std::string echo = strCommand;
+    write(echo, true);
+  }
+
+  m_commandArray.push_back(strCommand);
+  if (m_commandArray.size() > VSCP_TCPIP_COMMAND_LIST_MAX) {
+    m_commandArray.pop_front();
+  }
+
+  return (VSCP_TCPIP_RV_CLOSE != CommandHandler(strCommand));
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// onPoll
+//
+
+void
+CTcpipSession::onPoll(void)
+{
+  if ((nullptr == m_pClientItem) || !isOpen()) {
+    return;
+  }
+
+  if ((time(NULL) - m_pClientItem->m_clientActivity) > TCPIPSRV_INACTIVITY_TIMEOUT) {
+    drvlog::info("[TCP/IP srv] Client {} closed due to inactivity.", getRemoteAddress());
+    close();
+    return;
+  }
+
+  // Binary mode: send events asynchronously once the client has issued OPEN
+  if (m_bBinaryMode) {
+    while (m_bBinaryOpen && isOpen() && (m_conn->send.len < (256 * 1024))) {
+      vscpEvent* pEvent = popEvent();
+      if (nullptr == pEvent) {
+        break;
+      }
+      bool ok = sendBinaryEvent(pEvent);
+      vscp_deleteEvent_v2(&pEvent);
+      if (!ok) {
+        close();
+        break;
+      }
+    }
+    return;
+  }
+
+  if (m_bReceiveLoop) {
+
+    // Don't let the send buffer grow without bound for a slow client
+    while ((m_conn->send.len < (256 * 1024)) && sendOneEventFromQueue(false))
+      ;
+
+    // Keep alive
+    if ((time(NULL) - m_pClientItem->m_timeRcvLoop) > 2) {
+      m_pClientItem->m_timeRcvLoop    = time(NULL);
+      m_pClientItem->m_clientActivity = (long)time(NULL);
+      write("+OK\r\n", 5);
+    }
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// onClose
+//
+
+void
+CTcpipSession::onClose(void)
+{
+  if (nullptr != m_pClientItem) {
+    m_pClientItem->m_bOpen = false;
+    pthread_mutex_lock(&m_pObj->m_clientList.m_mutexItemList);
+    m_pObj->removeClient(m_pClientItem);
+    pthread_mutex_unlock(&m_pObj->m_clientList.m_mutexItemList);
+    m_pClientItem = nullptr;
+  }
+  m_conn = nullptr;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -189,19 +379,19 @@ int
 CTcpipSession::CommandHandler(std::string& strCommand)
 {
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return VSCP_TCPIP_RV_ERROR;
   }
 
   if (NULL == m_pObj) {
-    spdlog::error(
+    drvlog::error(
       "[TCP/IP srv] ERROR: Control object pointer is NULL in command "
       "handler.");
     return VSCP_TCPIP_RV_CLOSE; // Close connection
   }
 
   if (NULL == m_pClientItem) {
-    spdlog::error(
+    drvlog::error(
       "[TCP/IP srv] ERROR: ClientItem pointer is NULL in command handler.");
     return VSCP_TCPIP_RV_CLOSE; // Close connection
   }
@@ -225,6 +415,14 @@ CTcpipSession::CommandHandler(std::string& strCommand)
   }
 
   //*********************************************************************
+  //                     Binary - switch to binary mode
+  //*********************************************************************
+
+  else if (m_pClientItem->CommandStartsWith(("binary"))) {
+    handleClientBinary();
+  }
+
+  //*********************************************************************
   //                             Rcvloop
   //*********************************************************************
 
@@ -236,7 +434,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
         handleClientRcvLoop();
       }
       catch (...) {
-        spdlog::error("TCPIP: Exception occurred handleClientRcvLoop");
+        drvlog::error("TCPIP: Exception occurred handleClientRcvLoop");
       }
     }
   }
@@ -259,7 +457,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
       handleClientUser();
     }
     catch (...) {
-      spdlog::error("TCPIP: Exception occurred handleClientUser");
+      drvlog::error("TCPIP: Exception occurred handleClientUser");
     }
   }
 
@@ -271,15 +469,15 @@ CTcpipSession::CommandHandler(std::string& strCommand)
 
     try {
       if (!handleClientPassword()) {
-        spdlog::error("[TCP/IP srv] Command: Password. Not authorized.");
+        drvlog::error("[TCP/IP srv] Command: Password. Not authorized.");
         return VSCP_TCPIP_RV_CLOSE; // Close connection
       }
     }
     catch (...) {
-      spdlog::error("TCPIP: Exception occurred handleClientPassword");
+      drvlog::error("TCPIP: Exception occurred handleClientPassword");
     }
 
-    spdlog::debug("[TCP/IP srv] Command: Password. OK");
+    drvlog::debug("[TCP/IP srv] Command: Password. OK");
   }
 
   //*********************************************************************
@@ -291,7 +489,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
       handleChallenge();
     }
     catch (...) {
-      spdlog::error("TCPIP: Exception occurred handleChallange");
+      drvlog::error("TCPIP: Exception occurred handleChallange");
     }
   }
 
@@ -301,7 +499,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
 
   else if (m_pClientItem->CommandStartsWith("quit") ||
            m_pClientItem->CommandStartsWith("exit")) {
-    spdlog::debug("[TCP/IP srv] Command: Close.");
+    drvlog::debug("[TCP/IP srv] Command: Close.");
     write(MSG_GOODBY, strlen(MSG_GOODBY));
     return VSCP_TCPIP_RV_CLOSE; // Close connection
   }
@@ -315,7 +513,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
         handleClientShutdown();
       }
       catch (...) {
-        spdlog::error("TCPIP: Exception occurred handleClientShutdown");
+        drvlog::error("TCPIP: Exception occurred handleClientShutdown");
       }
     }
   }
@@ -330,7 +528,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
         handleClientSend();
       }
       catch (...) {
-        spdlog::error("TCPIP: Exception occurred handleClientSend");
+        drvlog::error("TCPIP: Exception occurred handleClientSend");
       }
     }
   }
@@ -346,7 +544,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
         handleClientReceive();
       }
       catch (...) {
-        spdlog::error("TCPIP: Exception occurred handleClientReceive");
+        drvlog::error("TCPIP: Exception occurred handleClientReceive");
       }
     }
   }
@@ -362,7 +560,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
       handleClientDataAvailable();
     }
     catch (...) {
-      spdlog::error("TCPIP: Exception occurred handleClientDataAvailable");
+      drvlog::error("TCPIP: Exception occurred handleClientDataAvailable");
     }
   }
 
@@ -377,7 +575,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
       handleClientClearInputQueue();
     }
     catch (...) {
-      spdlog::error("TCPIP: Exception occurred handleClientClearInputQueue");
+      drvlog::error("TCPIP: Exception occurred handleClientClearInputQueue");
     }
   }
 
@@ -390,7 +588,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
       handleClientGetStatistics();
     }
     catch (...) {
-      spdlog::error("TCPIP: Exception occurred handleClientGetStatistics");
+      drvlog::error("TCPIP: Exception occurred handleClientGetStatistics");
     }
   }
 
@@ -403,7 +601,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
       handleClientGetStatus();
     }
     catch (...) {
-      spdlog::error("TCPIP: Exception occurred handleClientGetStatus");
+      drvlog::error("TCPIP: Exception occurred handleClientGetStatus");
     }
   }
 
@@ -417,7 +615,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
       handleClientGetChannelID();
     }
     catch (...) {
-      spdlog::error("TCPIP: Exception occurred handleClientGetChannelID");
+      drvlog::error("TCPIP: Exception occurred handleClientGetChannelID");
     }
   }
 
@@ -432,7 +630,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
         handleClientSetChannelGUID();
       }
       catch (...) {
-        spdlog::error("TCPIP: Exception occurred handleClientSetChannelGUID");
+        drvlog::error("TCPIP: Exception occurred handleClientSetChannelGUID");
       }
     }
   }
@@ -447,7 +645,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
       handleClientGetChannelGUID();
     }
     catch (...) {
-      spdlog::error("TCPIP: Exception occurred handleClientGetChannelGUID");
+      drvlog::error("TCPIP: Exception occurred handleClientGetChannelGUID");
     }
   }
 
@@ -461,7 +659,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
       handleClientGetVersion();
     }
     catch (...) {
-      spdlog::error("TCPIP: Exception occurred handleClientGetVersion");
+      drvlog::error("TCPIP: Exception occurred handleClientGetVersion");
     }
   }
 
@@ -476,7 +674,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
         handleClientSetFilter();
       }
       catch (...) {
-        spdlog::error("TCPIP: Exception occurred handleClientSetFilter");
+        drvlog::error("TCPIP: Exception occurred handleClientSetFilter");
       }
     }
   }
@@ -492,7 +690,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
         handleClientSetMask();
       }
       catch (...) {
-        spdlog::error("TCPIP: Exception occurred handleClientSetMask");
+        drvlog::error("TCPIP: Exception occurred handleClientSetMask");
       }
     }
   }
@@ -506,7 +704,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
       handleClientHelp();
     }
     catch (...) {
-      spdlog::error("TCPIP: Exception occurred handleClientHelp");
+      drvlog::error("TCPIP: Exception occurred handleClientHelp");
     }
   }
 
@@ -520,7 +718,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
         handleClientRestart();
       }
       catch (...) {
-        spdlog::error("TCPIP: Exception occurred handleClientRestart");
+        drvlog::error("TCPIP: Exception occurred handleClientRestart");
       }
     }
   }
@@ -536,7 +734,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
         handleClientInterface();
       }
       catch (...) {
-        spdlog::error("TCPIP: Exception occurred handleClientInterface");
+        drvlog::error("TCPIP: Exception occurred handleClientInterface");
       }
     }
   }
@@ -551,7 +749,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
         handleClientTest();
       }
       catch (...) {
-        spdlog::error("TCPIP: Exception occurred handleClientTest");
+        drvlog::error("TCPIP: Exception occurred handleClientTest");
       }
     }
   }
@@ -566,7 +764,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
       handleClientCapabilityRequest();
     }
     catch (...) {
-      spdlog::error("TCPIP: Exception occurred handleClientCapabilityRequest");
+      drvlog::error("TCPIP: Exception occurred handleClientCapabilityRequest");
     }
   }
 
@@ -579,7 +777,7 @@ CTcpipSession::CommandHandler(std::string& strCommand)
       handleClientMeasurement();
     }
     catch (...) {
-      spdlog::error("TCPIP: Exception occurred handleClientMeasurement");
+      drvlog::error("TCPIP: Exception occurred handleClientMeasurement");
     }
   }
 
@@ -636,9 +834,8 @@ CTcpipSession::handleClientMeasurement(void)
   }
 
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen())
     return;
-  }
 
   if (NULL == m_pClientItem) {
     write(MSG_INTERNAL_MEMORY_ERROR, strlen(MSG_INTERNAL_MEMORY_ERROR));
@@ -750,9 +947,8 @@ CTcpipSession::handleClientMeasurement(void)
     vscp_trim(str);
 
     // If empty set to default.
-    if (0 == str.length()) {
+    if (0 == str.length())
       str = "-";
-    }
     guid.getFromString(str);
   }
 
@@ -775,7 +971,7 @@ CTcpipSession::handleClientMeasurement(void)
     vscp_trim(str);
 
     zone = vscp_readStringValue(str);
-
+    ;
     zone &= 0xff;
   }
 
@@ -800,36 +996,25 @@ CTcpipSession::handleClientMeasurement(void)
     vscp_trim(str);
 
     // If empty set to default.
-    if (0 == str.length()) {
+    if (0 == str.length())
       str = ("-");
-    }
     destguid.getFromString(str);
   }
 
   // Range checks
   if (VSCP_LEVEL1 == level) {
-
-    if (unit > 3) {
+    if (unit > 3)
       unit = 0;
-    }
-
-    if (sensoridx > 7) {
+    if (sensoridx > 7)
       unit = 0;
-    }
-
-    if (vscptype > 512) {
+    if (vscptype > 512)
       vscptype -= 512;
-    }
   }
   else { // VSCP_LEVEL2
-
-    if (unit > 255) {
+    if (unit > 255)
       unit &= 0xff;
-    }
-
-    if (sensoridx > 255) {
+    if (sensoridx > 255)
       sensoridx &= 0xff;
-    }
   }
 
   if (1 == level) { // Level I
@@ -843,10 +1028,8 @@ CTcpipSession::handleClientMeasurement(void)
                                             (float)value,
                                             (uint8_t)unit,
                                             (uint8_t)sensoridx)) {
-        // Make sure size is in a valid range                                              
-        if (sizeData > 8) {
+        if (sizeData > 8)
           sizeData = 8;
-        }
 
         vscpEvent* pEvent = new vscpEvent;
         if (NULL == pEvent) {
@@ -1009,10 +1192,7 @@ void
 CTcpipSession::handleClientCapabilityRequest(void)
 {
   std::string str;
-  uint64_t capabilities =
-    VSCP_SERVER_CAPABILITY_TCPIP | VSCP_SERVER_CAPABILITY_IP6 |
-    VSCP_SERVER_CAPABILITY_IP4 | VSCP_SERVER_CAPABILITY_SSL |
-    VSCP_SERVER_CAPABILITY_TWO_CONNECTIONS;
+  uint64_t capabilities = getCapabilities();
 
   str = vscp_str_format("%02X-%02X-%02X-%02X-%02X-%02X-%02X-%02X\r\n",
                         (capabilities >> 56) & 0xff,
@@ -1040,9 +1220,8 @@ CTcpipSession::isVerified(void)
   }
 
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen())
     return false;
-  }
 
   // Must be accredited to do this
   if (!m_pClientItem->bAuthenticated) {
@@ -1066,7 +1245,7 @@ CTcpipSession::checkPrivilege(unsigned long reqiredPrivilege)
   }
 
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return false;
   }
 
@@ -1099,9 +1278,10 @@ void
 CTcpipSession::handleClientSend(void)
 {
   vscpEvent event;
+  memset(&event, 0, sizeof(event));
 
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return;
   }
 
@@ -1300,7 +1480,7 @@ CTcpipSession::handleClientSend(void)
       m_pClientItem->m_pUserItem->getUserName().c_str(),
       event.vscp_class,
       event.vscp_type);
-    spdlog::error("{}", strErr);
+    drvlog::error("{}", strErr);
     write(MSG_MOT_ALLOWED_TO_SEND_EVENT, strlen(MSG_MOT_ALLOWED_TO_SEND_EVENT));
 
     if (NULL != event.pdata) {
@@ -1321,7 +1501,7 @@ CTcpipSession::handleClientSend(void)
       m_pClientItem->m_pUserItem->getUserName().c_str(),
       event.vscp_class,
       event.vscp_type);
-    spdlog::error("{}", strErr);
+    drvlog::error("{}", strErr);
     write(MSG_MOT_ALLOWED_TO_SEND_EVENT, strlen(MSG_MOT_ALLOWED_TO_SEND_EVENT));
 
     if (NULL != event.pdata) {
@@ -1342,7 +1522,7 @@ CTcpipSession::handleClientSend(void)
       m_pClientItem->m_pUserItem->getUserName().c_str(),
       event.vscp_class,
       event.vscp_type);
-    spdlog::error("{}", strErr);
+    drvlog::error("{}", strErr);
     write(MSG_MOT_ALLOWED_TO_SEND_EVENT, strlen(MSG_MOT_ALLOWED_TO_SEND_EVENT));
 
     if (NULL != event.pdata) {
@@ -1363,7 +1543,7 @@ CTcpipSession::handleClientSend(void)
       (const char*)m_pClientItem->m_pUserItem->getUserName().c_str(),
       event.vscp_class,
       event.vscp_type);
-    spdlog::error("{}", strErr);
+    drvlog::error("{}", strErr);
     write(MSG_MOT_ALLOWED_TO_SEND_EVENT, strlen(MSG_MOT_ALLOWED_TO_SEND_EVENT));
 
     if (NULL != event.pdata) {
@@ -1383,7 +1563,7 @@ CTcpipSession::handleClientSend(void)
       (const char*)m_pClientItem->m_pUserItem->getUserName().c_str(),
       event.vscp_class,
       event.vscp_type);
-    spdlog::error("{}", strErr);
+    drvlog::error("{}", strErr);
     write(MSG_MOT_ALLOWED_TO_SEND_EVENT, strlen(MSG_MOT_ALLOWED_TO_SEND_EVENT));
 
     if (NULL != event.pdata) {
@@ -1395,17 +1575,16 @@ CTcpipSession::handleClientSend(void)
   }
 
   vscpEvent* pNewEvent = new vscpEvent;
-  pNewEvent->pdata     = NULL;
-  vscp_copyEvent(pNewEvent, &event);
+  memset(pNewEvent, 0, sizeof(vscpEvent));
+  bool bCopied = vscp_copyEvent(pNewEvent, &event);
+  vscp_deleteEvent(&event); // The queue gets its own copy of the data
 
   // send event
-  if (!m_pObj->addEvent2ReceiveQueue(pNewEvent)) {
+  if (!bCopied || !m_pObj->addEvent2ReceiveQueue(pNewEvent)) {
     vscp_deleteEvent_v2(&pNewEvent); // Deallocate event
-    vscp_deleteEvent(&event);        // Deallocate data
     write(MSG_BUFFER_FULL, strlen(MSG_BUFFER_FULL));
     return;
   }
-  // vscp_deleteEvent(&event);     // Deallocate data
 
   write(MSG_OK, strlen(MSG_OK));
 }
@@ -1420,7 +1599,7 @@ CTcpipSession::handleClientReceive(void)
   unsigned short cnt = 0; // # of messages to read
 
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return;
   }
 
@@ -1469,7 +1648,7 @@ CTcpipSession::sendOneEventFromQueue(bool bStatusMsg)
   std::string strOut;
 
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return false;
   }
 
@@ -1484,8 +1663,7 @@ CTcpipSession::sendOneEventFromQueue(bool bStatusMsg)
     pthread_mutex_unlock(&m_pClientItem->m_mutexClientInputQueue);
 
     // [[clientid == obid]] is used to detect our own events
-    if (m_pObj->m_bReceiveOwnEvents ||
-        (pqueueEvent->obid != m_pClientItem->m_clientID)) {
+    if (m_pObj->m_bReceiveOwnEvents || (pqueueEvent->obid != m_pClientItem->m_clientID)) {
       vscp_convertEventToString(strOut, pqueueEvent);
       strOut += ("\r\n");
       write(strOut.c_str(), strlen(strOut.c_str()));
@@ -1514,7 +1692,7 @@ CTcpipSession::handleClientDataAvailable(void)
   char outbuf[1024];
 
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return;
   }
 
@@ -1540,7 +1718,7 @@ void
 CTcpipSession::handleClientClearInputQueue(void)
 {
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return;
   }
 
@@ -1574,7 +1752,7 @@ CTcpipSession::handleClientGetStatistics(void)
   char outbuf[1024];
 
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return;
   }
 
@@ -1609,7 +1787,7 @@ CTcpipSession::handleClientGetStatus(void)
   char outbuf[1024];
 
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return;
   }
 
@@ -1641,7 +1819,7 @@ CTcpipSession::handleClientGetChannelID(void)
   char outbuf[1024];
 
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return;
   }
 
@@ -1668,7 +1846,7 @@ void
 CTcpipSession::handleClientSetChannelGUID(void)
 {
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return;
   }
 
@@ -1694,7 +1872,7 @@ CTcpipSession::handleClientGetChannelGUID(void)
   std::string strBuf;
 
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return;
   }
 
@@ -1721,7 +1899,7 @@ CTcpipSession::handleClientGetVersion(void)
   char outbuf[1024];
 
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return;
   }
 
@@ -1745,7 +1923,7 @@ void
 CTcpipSession::handleClientSetFilter(void)
 {
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return;
   }
 
@@ -1815,7 +1993,7 @@ void
 CTcpipSession::handleClientSetMask(void)
 {
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return;
   }
 
@@ -1885,7 +2063,7 @@ void
 CTcpipSession::handleClientUser(void)
 {
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return;
   }
 
@@ -1912,7 +2090,7 @@ bool
 CTcpipSession::handleClientPassword(void)
 {
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return false;
   }
 
@@ -1947,29 +2125,35 @@ CTcpipSession::handleClientPassword(void)
       vscp_str_format(("[TCP/IP srv] User [%s][%s] not allowed to connect.\n"),
                       (const char*)m_pClientItem->m_UserName.c_str(),
                       (const char*)strPassword.c_str());
-    spdlog::error("{}", strErr);
+    drvlog::error("{}", strErr);
     write(MSG_PASSWORD_ERROR, strlen(MSG_PASSWORD_ERROR));
     return false;
   }
 
   // Get remote address
-  struct sockaddr_in cli_addr;
-  socklen_t clilen = 0;
-  clilen           = sizeof(cli_addr);
-  (void)getpeername(m_conn->client.sock, (struct sockaddr*)&cli_addr, &clilen);
-  std::string remoteaddr = std::string(inet_ntoa(cli_addr.sin_addr));
+  std::string remoteaddr = getRemoteAddress();
 
-  // Check if this user is allowed to connect from this location
+  // Check if this user is allowed to connect from this location. The user
+  // list holds IPv4 rules, so an IPv6 peer must be IPv4 mapped to match.
+  uint32_t remote_ip4 = 0;
+  if (!m_conn->rem.is_ip6) {
+    remote_ip4 = m_conn->rem.addr.ip4;
+  }
+  else {
+    static const uint8_t v4mapped[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff };
+    if (0 == memcmp(m_conn->rem.addr.ip, v4mapped, sizeof(v4mapped))) {
+      memcpy(&remote_ip4, m_conn->rem.addr.ip + 12, 4);
+    }
+  }
   pthread_mutex_lock(&m_pObj->m_mutex_UserList);
-  bool bValidHost = (1 == m_pClientItem->m_pUserItem->isAllowedToConnect(
-                            cli_addr.sin_addr.s_addr));
+  bool bValidHost = (1 == m_pClientItem->m_pUserItem->isAllowedToConnect(remote_ip4));
   pthread_mutex_unlock(&m_pObj->m_mutex_UserList);
 
   if (!bValidHost) {
     std::string strErr =
       vscp_str_format(("[TCP/IP srv] Host [%s] not allowed to connect.\n"),
                       (const char*)remoteaddr.c_str());
-    spdlog::error("{}", strErr);
+    drvlog::error("{}", strErr);
     write(MSG_INVALID_REMOTE_ERROR, strlen(MSG_INVALID_REMOTE_ERROR));
     return false;
   }
@@ -1983,7 +2167,7 @@ CTcpipSession::handleClientPassword(void)
     vscp_str_format(("[TCP/IP srv] Host [%s] User [%s] allowed to connect.\n"),
                     (const char*)remoteaddr.c_str(),
                     (const char*)m_pClientItem->m_UserName.c_str());
-  spdlog::info("{}", strErr);
+  drvlog::info("{}", strErr);
   m_pClientItem->bAuthenticated = true;
   write(MSG_OK, strlen(MSG_OK));
 
@@ -2000,7 +2184,7 @@ CTcpipSession::handleChallenge(void)
   std::string str;
 
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return;
   }
 
@@ -2026,7 +2210,7 @@ void
 CTcpipSession::handleClientRcvLoop(void)
 {
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return;
   }
 
@@ -2074,11 +2258,11 @@ void
 CTcpipSession::handleClientShutdown(void)
 {
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return;
   }
 
-  spdlog::debug("tcp/ip client requested shutdown!!!");
+  drvlog::debug("tcp/ip client requested shutdown!!!");
   if (!m_pClientItem->bAuthenticated) {
     write(MSG_OK, strlen(MSG_OK));
   }
@@ -2117,7 +2301,7 @@ void
 CTcpipSession::handleClientInterface(void)
 {
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return;
   }
 
@@ -2187,7 +2371,7 @@ CTcpipSession::handleClientInterface_Unique(void)
   memset(ifGUID, 0, 16);
 
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return;
   }
 
@@ -2233,7 +2417,7 @@ void
 CTcpipSession::handleClientHelp(void)
 {
   // Must be connected
-  if (STCP_CONN_STATE_CONNECTED != m_conn->conn_state) {
+  if (!isOpen()) {
     return;
   }
 
@@ -2439,267 +2623,508 @@ CTcpipSession::handleClientHelp(void)
   return;
 }
 
-///////////////////////////////////////////////////////////////////////////////
-// Entry
+
+// ----------------------------------------------------------------------------
+//                            B I N A R Y   M O D E
+// ----------------------------------------------------------------------------
+//
+// After the text command BINARY the connection carries records
+// [length:2, big-endian][frame], see the VSCP general binary protocol.
+// If the driver is configured with binary encryption every frame is a
+// version 1 authenticated frame (AES-CBC + HMAC-SHA-256), and any record
+// that fails authentication, or is not authenticated, closes the
+// connection. Without binary encryption only plain frames are accepted.
 //
 
-void*
-tcpipClientThread(void* pData)
+///////////////////////////////////////////////////////////////////////////////
+// getCapabilities
+//
+
+uint64_t
+CTcpipSession::getCapabilities(void) const
 {
-  CTcpipSession* ptcpipobj = (CTcpipSession*)pData;
-  if (NULL == ptcpipobj) {
-    spdlog::error("[TCP/IP srv client thread] Error, "
-                  "Client thread object not initialized.");
-    return NULL;
-  }
-
-  if (NULL == ptcpipobj->m_pParent) {
-    spdlog::error("[TCP/IP srv client thread] Error, "
-                  "Control object not initialized.");
-    return NULL;
-  }
-
-  spdlog::debug("[TCP/IP srv client thread] Thread started.");
-  ptcpipobj->m_pClientItem = new CClientItem();
-  if (NULL == ptcpipobj->m_pClientItem) {
-    spdlog::error("[TCP/IP srv client thread] Memory error, "
-                  "Cant allocate client structure.");
-    return NULL;
-  }
-
-  vscpdatetime now;
-  ptcpipobj->m_pClientItem->m_dtutc = now;
-  ptcpipobj->m_pClientItem->m_bOpen = true;
-  ptcpipobj->m_pClientItem->m_type  = CLIENT_ITEM_INTERFACE_TYPE_CLIENT_TCPIP;
-  ptcpipobj->m_pClientItem->m_strDeviceName =
-    ("Remote tcp/ip server connection @ [");
-  ptcpipobj->m_pClientItem->m_strDeviceName +=
-    ptcpipobj->m_pObj->m_j_config.value("interface", "127.0.0.1:9598");
-  ptcpipobj->m_pClientItem->m_strDeviceName += ("]");
-
-  // Start of activity
-  ptcpipobj->m_pClientItem->m_clientActivity = (long)time(NULL);
-
-  // Add the client to the Client List
-  pthread_mutex_lock(&ptcpipobj->m_pObj->m_clientList.m_mutexItemList);
-  if (!ptcpipobj->m_pObj->addClient(ptcpipobj->m_pClientItem)) {
-    // Failed to add client
-    delete ptcpipobj->m_pClientItem;
-    ptcpipobj->m_pClientItem = NULL;
-    pthread_mutex_unlock(&ptcpipobj->m_pObj->m_clientList.m_mutexItemList);
-    spdlog::error("TCP/IP server: Failed to add client. Terminating thread.");
-    return NULL;
-  }
-  pthread_mutex_unlock(&ptcpipobj->m_pObj->m_clientList.m_mutexItemList);
-
-  // Clear the filter (Allow everything )
-  vscp_clearVSCPFilter(&ptcpipobj->m_pClientItem->m_filter);
-
-  // Send welcome message
-  std::string str = std::string(MSG_WELCOME);
-  str += std::string("Version: ");
-  str += vscp_str_format("%d.%d.%d-%d",
-                         MAJOR_VERSION,
-                         MINOR_VERSION,
-                         RELEASE_VERSION,
-                         BUILD_VERSION);
-  str += std::string("\r\n");
-  str += std::string(DRIVER_COPYRIGHT);
-  str += std::string("\r\n");
-  str += std::string(MSG_OK);
-  ptcpipobj->write((const char*)str.c_str(), str.length());
-  spdlog::debug("[TCP/IP srv] Ready to serve client.");
-
-  // Enter command loop
-  char buf[8192];
-  struct pollfd fd;
-  while (!ptcpipobj->m_pParent->m_nStopTcpIpSrv) {
-
-    // Check for client inactivity
-    if ((time(NULL) - ptcpipobj->m_pClientItem->m_clientActivity) >
-        TCPIPSRV_INACTIVITY_TIMOUT) {
-      spdlog::info(
-        "[TCP/IP srv client thread] Client closed due to inactivity.");
+  uint64_t capabilities = VSCP_SERVER_CAPABILITY_TCPIP | VSCP_SERVER_CAPABILITY_IP6 | VSCP_SERVER_CAPABILITY_IP4 |
+                          VSCP_SERVER_CAPABILITY_SSL | VSCP_SERVER_CAPABILITY_TWO_CONNECTIONS;
+  switch (m_pObj->getBinaryEncryption()) {
+    case VSCP_ENCRYPTION_AES128:
+      capabilities |= VSCP_SERVER_CAPABILITY_AES128;
       break;
-    }
-
-    // * * * Receiveloop * * *
-    if (ptcpipobj->m_bReceiveLoop) {
-
-      // Wait for data
-      vscp_sem_wait(&ptcpipobj->m_pClientItem->m_semClientInputQueue, 10);
-
-      // Send everything in the queue
-      while (ptcpipobj->sendOneEventFromQueue(false))
-        ;
-
-      // Send '+OK<CR><LF>' every two seconds to indicate that the
-      // link is open
-      if ((time(NULL) - ptcpipobj->m_pClientItem->m_timeRcvLoop) > 2) {
-        ptcpipobj->m_pClientItem->m_timeRcvLoop    = time(NULL);
-        ptcpipobj->m_pClientItem->m_clientActivity = (long)time(NULL);
-        ptcpipobj->write("+OK\r\n", 5);
-      }
-    }
-    else {
-
-      // Set poll
-      fd.fd      = ptcpipobj->m_conn->client.sock;
-      fd.events  = POLLIN;
-      fd.revents = 0;
-
-      // Wait for data
-      if (stcp_poll(&fd, 1, 500, &(ptcpipobj->m_pParent->m_nStopTcpIpSrv)) <
-          0) {
-        continue; // Nothing
-      }
-
-      // Data in?
-      if (!(fd.revents & POLLIN)) {
-        continue;
-      }
-    }
-
-    // Read possible data from client
-    //      If in receive loop we know we have delay
-    //      in event waiting above.
-    memset(buf, 0, sizeof(buf));
-    int nRead = stcp_read(ptcpipobj->m_conn,
-                          buf,
-                          sizeof(buf),
-                          (ptcpipobj->m_bReceiveLoop) ? 0 : 0);
-
-    if (0 == nRead) {
-      ; // Nothing more to read - Check for command and continue -> below
-    }
-    else if (nRead < 0) {
-
-      if (STCP_ERROR_TIMEOUT == nRead) {
-        ptcpipobj->m_rv = VSCP_ERROR_TIMEOUT;
-      }
-      else if (STCP_ERROR_STOPPED == nRead) {
-        ptcpipobj->m_rv = VSCP_ERROR_STOPPED;
-        continue;
-      }
+    case VSCP_ENCRYPTION_AES192:
+      capabilities |= VSCP_SERVER_CAPABILITY_AES192;
       break;
-    }
-    else if (nRead > 0) {
-      ptcpipobj->m_strResponse += std::string(buf, nRead);
-    }
-
-    // Record client activity
-    ptcpipobj->m_pClientItem->m_clientActivity = (long)time(NULL);
-
-    // get data up to "\r\n" if any
-    size_t pos;
-    if (ptcpipobj->m_strResponse.npos !=
-        (pos = ptcpipobj->m_strResponse.find("\n"))) {
-
-      // Get the command
-      std::string strCommand = vscp_str_left(ptcpipobj->m_strResponse, pos + 1);
-
-      // Save the unhandled part
-      ptcpipobj->m_strResponse =
-        vscp_str_right(ptcpipobj->m_strResponse,
-                       ptcpipobj->m_strResponse.length() - pos - 1);
-
-      // Remove whitespace
-      vscp_trim(strCommand);
-
-      // If nothing to do do nothing - pretty obvious if you think about it
-      if (0 == strCommand.length()) {
-        continue;
-      }
-
-      // Check for repeat command
-      // +    - repeat last command
-      // +n   - repeat n-th command
-      // ++
-      if (ptcpipobj->m_commandArray.size() && ('+' == strCommand[0])) {
-
-        if (vscp_startsWith(strCommand, "++", &strCommand)) {
-          for (int i = (unsigned int)ptcpipobj->m_commandArray.size() - 1;
-               i >= 0;
-               i--) {
-            std::string str =
-              vscp_str_format("%d - %s",
-                              ptcpipobj->m_commandArray.size() - i - 1,
-                              ptcpipobj->m_commandArray[i].c_str());
-            vscp_trim(str);
-            ptcpipobj->write(str, true);
-          }
-          continue;
-        }
-
-        // Get pos
-        unsigned int n = 0;
-        if (strCommand.length() > 1) {
-          strCommand = strCommand.substr(strCommand.length() - 1);
-          n          = vscp_readStringValue(strCommand);
-        }
-
-        // Pos must be within range
-        if (n > ptcpipobj->m_commandArray.size()) {
-          n = (unsigned int)ptcpipobj->m_commandArray.size() - 1;
-        }
-
-        // Get the command
-        strCommand =
-          ptcpipobj->m_commandArray[ptcpipobj->m_commandArray.size() - n - 1];
-
-        // Write out the command
-        ptcpipobj->write(strCommand, true);
-      }
-
-      ptcpipobj->m_commandArray.push_back(
-        strCommand); // put at beginning of list
-      if (ptcpipobj->m_commandArray.size() > VSCP_TCPIP_COMMAND_LIST_MAX) {
-        ptcpipobj->m_commandArray.pop_front(); // Remove last inserted item
-      }
-
-      // Execute command
-      if (VSCP_TCPIP_RV_CLOSE == ptcpipobj->CommandHandler(strCommand)) {
-        break;
-      }
-    }
-
-  } // while
-
-  // Remove the client from the client queue
-  pthread_mutex_lock(&ptcpipobj->m_pParent->m_mutexTcpClientList);
-  std::list<CTcpipSession*>::iterator it;
-  for (it = ptcpipobj->m_pParent->m_tcpip_clientList.begin();
-       it != ptcpipobj->m_pParent->m_tcpip_clientList.end();
-       ++it) {
-
-    CTcpipSession* pclient            = *it; // TODO check
-    struct mg_connection* stored_conn = pclient->m_conn;
-    if (stored_conn->client.id == ptcpipobj->m_conn->client.id) {
-      ptcpipobj->m_pParent->m_tcpip_clientList.erase(it);
+    case VSCP_ENCRYPTION_AES256:
+      capabilities |= VSCP_SERVER_CAPABILITY_AES256;
       break;
+    default:
+      break;
+  }
+  return capabilities;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// handleClientBinary
+//
+
+void
+CTcpipSession::handleClientBinary(void)
+{
+  // Must be logged in
+  if (!isVerified()) {
+    return;
+  }
+
+  if (!m_pObj->isBinaryEnabled()) {
+    write(MSG_COMMAND_NOT_SUPPORTED, strlen(MSG_COMMAND_NOT_SUPPORTED));
+    return;
+  }
+
+  if (m_bReceiveLoop) {
+    write(MSG_PARAMETER_ERROR, strlen(MSG_PARAMETER_ERROR));
+    return;
+  }
+
+  crcInit();
+  write(MSG_BINARY_MODE, strlen(MSG_BINARY_MODE));
+
+  m_bBinaryMode = true;
+  m_bBinaryOpen = false; // Events are queued until OPEN
+  m_binaryInput.clear();
+
+  drvlog::debug("[TCP/IP srv] Client {} entered binary mode{}",
+                getRemoteAddress(),
+                m_pObj->isBinaryAuthenticated() ? " (authenticated encryption)" : "");
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// onBinaryData
+//
+
+void
+CTcpipSession::onBinaryData(const uint8_t* buf, size_t len)
+{
+  m_binaryInput.insert(m_binaryInput.end(), buf, buf + len);
+
+  size_t offset = 0;
+  while (isOpen() && m_bBinaryMode && ((m_binaryInput.size() - offset) >= 2)) {
+
+    const size_t length = ((size_t)m_binaryInput[offset] << 8) | m_binaryInput[offset + 1];
+    if (0 == length) {
+      drvlog::warn("[TCP/IP srv] Zero length binary record from {}. Closing.", getRemoteAddress());
+      close();
+      return;
+    }
+
+    if ((m_binaryInput.size() - offset) < (2 + length)) {
+      break; // Wait for the rest of the record
+    }
+
+    std::vector<uint8_t> frame(m_binaryInput.begin() + offset + 2, m_binaryInput.begin() + offset + 2 + length);
+    offset += 2 + length;
+
+    if (m_pObj->isBinaryAuthenticated()) {
+      // Only authentic version 1 frames with the configured algorithm
+      std::vector<uint8_t> plain(length);
+      size_t plainLen = 0;
+      if ((m_pObj->getBinaryEncryption() == (frame[0] & 0x0f)) &&
+          (0 != (plainLen = vscp_decryptFrameV1(plain.data(),
+                                                plain.size(),
+                                                frame.data(),
+                                                frame.size(),
+                                                m_pObj->getBinaryAesKey(),
+                                                m_pObj->getBinaryHmacKey())))) {
+        plain.resize(plainLen);
+        plain[0] &= 0xf0; // Decrypted: handle as the plain frame it now is
+        frame.swap(plain);
+        OPENSSL_cleanse(plain.data(), plain.size());
+      }
+      else {
+        OPENSSL_cleanse(plain.data(), plain.size());
+        drvlog::warn("[TCP/IP srv] Binary record from {} failed authentication. Closing.", getRemoteAddress());
+        close();
+        return;
+      }
+    }
+    else if (frame[0] & 0x0f) {
+      // Encrypted frames need configured keys; never fall back
+      drvlog::warn("[TCP/IP srv] Encrypted binary record from {} but binary encryption is not configured. Closing.",
+                   getRemoteAddress());
+      close();
+      return;
+    }
+
+    if (!handleBinaryFrame(frame)) {
+      close();
+      return;
     }
   }
-  pthread_mutex_unlock(&ptcpipobj->m_pParent->m_mutexTcpClientList);
 
-  // Close the connection
-  stcp_close_connection(ptcpipobj->m_conn);
-  ptcpipobj->m_conn = NULL;
+  m_binaryInput.erase(m_binaryInput.begin(), m_binaryInput.begin() + offset);
 
-  // Close the channel
-  ptcpipobj->m_pClientItem->m_bOpen = false;
+  // TEXT switched back to text mode: the rest is text
+  if (isOpen() && !m_bBinaryMode && !m_binaryInput.empty()) {
+    m_strResponse.assign(m_binaryInput.begin(), m_binaryInput.end());
+    m_binaryInput.clear();
+    onTextData();
+  }
+}
 
-  // Remove the client from the Client List
-  pthread_mutex_lock(&ptcpipobj->m_pObj->m_clientList.m_mutexItemList);
-  ptcpipobj->m_pObj->removeClient(ptcpipobj->m_pClientItem);
-  pthread_mutex_unlock(&ptcpipobj->m_pObj->m_clientList.m_mutexItemList);
+///////////////////////////////////////////////////////////////////////////////
+// handleBinaryFrame
+//
 
-  ptcpipobj->m_pClientItem = NULL;
-  ptcpipobj->m_pParent     = NULL;
+bool
+CTcpipSession::handleBinaryFrame(const std::vector<uint8_t>& frame)
+{
+  if (frame.empty()) {
+    return false;
+  }
 
-  // Delete the client object
-  delete ptcpipobj;
+  const uint8_t type = frame[0] & 0xf0;
 
-  spdlog::debug("[TCP/IP srv client thread] Exit.");
+  if ((0x00 == type) || (0x10 == type)) {
+    return handleBinaryEvent(frame);
+  }
 
-  return NULL;
+  if (VSCP_BINARY_PACKET_TYPE_COMMAND == type) {
+    return handleBinaryCommand(frame);
+  }
+
+  if (VSCP_BINARY_PACKET_TYPE_RESPONSE == type) {
+    // Replies from the client, normally event confirmations for events we
+    // sent. Nothing to do.
+    return true;
+  }
+
+  drvlog::debug("[TCP/IP srv] Ignoring binary frame of unknown type {:#x} from {}", type, getRemoteAddress());
+  return true;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// handleBinaryEvent
+//
+
+bool
+CTcpipSession::handleBinaryEvent(const std::vector<uint8_t>& frame)
+{
+  // Header (35) + type byte + data size (2 in header) + CRC (2)
+  if (frame.size() < 38) {
+    return sendBinaryReply(VSCP_BINARY_CMD_EVENT_CONFIRM, VSCP_ERROR_INVALID_FRAME);
+  }
+
+  const uint8_t confirmArg[] = { 0, 0, frame[1], frame[2], frame[frame.size() - 2], frame[frame.size() - 1] };
+
+  const size_t sizeData = ((size_t)frame[34] << 8) | frame[35];
+  vscpEvent event;
+  memset(&event, 0, sizeof(event));
+  if ((sizeData > VSCP_LEVEL2_MAXDATA) || (frame.size() != (sizeData + 38)) ||
+      !vscp_getEventFromFrame(&event, frame.data(), frame.size())) { // Also checks the CRC
+    vscp_deleteEvent(&event);
+    return sendBinaryReply(VSCP_BINARY_CMD_EVENT_CONFIRM, VSCP_ERROR_INVALID_FRAME, confirmArg, sizeof(confirmArg));
+  }
+
+  int rv = checkSendRights(&event);
+  if (VSCP_ERROR_SUCCESS != rv) {
+    drvlog::error("[TCP/IP srv] User [{}] not allowed to send event class={} type={}.",
+                  m_pClientItem->m_pUserItem ? m_pClientItem->m_pUserItem->getUserName() : std::string("?"),
+                  event.vscp_class,
+                  event.vscp_type);
+    vscp_deleteEvent(&event);
+    return sendBinaryReply(VSCP_BINARY_CMD_EVENT_CONFIRM, (uint16_t)rv, confirmArg, sizeof(confirmArg));
+  }
+
+  // As for the text SEND command: our id, and our GUID if none is given
+  event.obid = m_pClientItem->m_clientID;
+  if (vscp_isGUIDEmpty(event.GUID)) {
+    m_pClientItem->m_guid.writeGUID(event.GUID);
+  }
+  if (0 == event.timestamp) {
+    event.timestamp = vscp_makeTimeStamp();
+  }
+
+  vscpEvent* pNewEvent = new (std::nothrow) vscpEvent;
+  if (nullptr == pNewEvent) {
+    vscp_deleteEvent(&event);
+    return sendBinaryReply(VSCP_BINARY_CMD_EVENT_CONFIRM, VSCP_ERROR_MEMORY, confirmArg, sizeof(confirmArg));
+  }
+  memset(pNewEvent, 0, sizeof(vscpEvent));
+  bool bCopied = vscp_copyEvent(pNewEvent, &event);
+  vscp_deleteEvent(&event);
+
+  if (!bCopied || !m_pObj->addEvent2ReceiveQueue(pNewEvent)) {
+    vscp_deleteEvent_v2(&pNewEvent);
+    return sendBinaryReply(VSCP_BINARY_CMD_EVENT_CONFIRM, VSCP_ERROR_TRM_FULL, confirmArg, sizeof(confirmArg));
+  }
+
+  m_pClientItem->m_statistics.cntTransmitFrames++;
+  return sendBinaryReply(VSCP_BINARY_CMD_EVENT_CONFIRM, VSCP_ERROR_SUCCESS, confirmArg, sizeof(confirmArg));
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// handleBinaryCommand
+//
+
+bool
+CTcpipSession::handleBinaryCommand(const std::vector<uint8_t>& frame)
+{
+  // [type][command:2][argument...][crc:2]
+  if ((frame.size() < 5) || crcFast(frame.data() + 1, (int)(frame.size() - 1))) {
+    drvlog::warn("[TCP/IP srv] Invalid binary command frame from {}. Closing.", getRemoteAddress());
+    return false;
+  }
+
+  const uint16_t command = ((uint16_t)frame[1] << 8) | frame[2];
+  const uint8_t* arg     = frame.data() + 3;
+  const size_t arg_len   = frame.size() - 5;
+
+  switch (command) {
+
+    case VSCP_BINARY_CMD_NOOP:
+      return sendBinaryReply(command, VSCP_ERROR_SUCCESS);
+
+    case VSCP_BINARY_CMD_QUIT:
+      sendBinaryReply(command, VSCP_ERROR_SUCCESS);
+      close();
+      return true;
+
+    case VSCP_BINARY_CMD_OPEN:
+      m_bBinaryOpen = true;
+      return sendBinaryReply(command, VSCP_ERROR_SUCCESS);
+
+    case VSCP_BINARY_CMD_CLOSE:
+      m_bBinaryOpen = false;
+      return sendBinaryReply(command, VSCP_ERROR_SUCCESS);
+
+    case VSCP_BINARY_CMD_RETR: {
+      if (m_bBinaryOpen) {
+        // Events are sent as they arrive
+        return sendBinaryReply(command, VSCP_ERROR_NOT_SUPPORTED);
+      }
+      size_t count = 1;
+      if (arg_len >= 2) {
+        count = ((size_t)arg[0] << 8) | arg[1];
+        if (0 == count) {
+          count = 1;
+        }
+      }
+      if (count > VSCP_BINARY_RETR_MAX) {
+        count = VSCP_BINARY_RETR_MAX;
+      }
+      size_t sent = 0;
+      while (sent < count) {
+        vscpEvent* pEvent = popEvent();
+        if (nullptr == pEvent) {
+          break;
+        }
+        bool ok = sendBinaryEvent(pEvent);
+        vscp_deleteEvent_v2(&pEvent);
+        if (!ok) {
+          return false;
+        }
+        sent++;
+      }
+      return sendBinaryReply(command, sent ? VSCP_ERROR_SUCCESS : VSCP_ERROR_RCV_EMPTY);
+    }
+
+    case VSCP_BINARY_CMD_CHKDATA: {
+      uint32_t count = 0;
+      if (!m_bBinaryOpen) {
+        pthread_mutex_lock(&m_pClientItem->m_mutexClientInputQueue);
+        count = (uint32_t)m_pClientItem->m_clientInputQueue.size();
+        pthread_mutex_unlock(&m_pClientItem->m_mutexClientInputQueue);
+      }
+      const uint8_t reply[] = { (uint8_t)(count >> 24), (uint8_t)(count >> 16), (uint8_t)(count >> 8), (uint8_t)count };
+      return sendBinaryReply(command, VSCP_ERROR_SUCCESS, reply, sizeof(reply));
+    }
+
+    case VSCP_BINARY_CMD_CLEAR: {
+      pthread_mutex_lock(&m_pClientItem->m_mutexClientInputQueue);
+      for (vscpEvent* pEvent : m_pClientItem->m_clientInputQueue) {
+        vscp_deleteEvent_v2(&pEvent);
+      }
+      m_pClientItem->m_clientInputQueue.clear();
+      pthread_mutex_unlock(&m_pClientItem->m_mutexClientInputQueue);
+      return sendBinaryReply(command, VSCP_ERROR_SUCCESS);
+    }
+
+    case VSCP_BINARY_CMD_VERSION: {
+      const uint8_t reply[] = { 0,
+                                MAJOR_VERSION,
+                                0,
+                                MINOR_VERSION,
+                                0,
+                                RELEASE_VERSION,
+                                (uint8_t)((uint32_t)BUILD_VERSION >> 24),
+                                (uint8_t)((uint32_t)BUILD_VERSION >> 16),
+                                (uint8_t)((uint32_t)BUILD_VERSION >> 8),
+                                (uint8_t)BUILD_VERSION };
+      return sendBinaryReply(command, VSCP_ERROR_SUCCESS, reply, sizeof(reply));
+    }
+
+    case VSCP_BINARY_CMD_WCYD: {
+      const uint64_t capabilities = getCapabilities();
+      uint8_t reply[8];
+      for (int i = 0; i < 8; i++) {
+        reply[i] = (uint8_t)(capabilities >> (56 - 8 * i));
+      }
+      return sendBinaryReply(command, VSCP_ERROR_SUCCESS, reply, sizeof(reply));
+    }
+
+    case VSCP_BINARY_CMD_TEXT:
+      // Leaving an authenticated binary session for plain text would be a
+      // downgrade, so it is only allowed without binary encryption
+      if (m_pObj->isBinaryAuthenticated()) {
+        return sendBinaryReply(command, VSCP_ERROR_NOT_SUPPORTED);
+      }
+      if (!sendBinaryReply(command, VSCP_ERROR_SUCCESS)) {
+        return false;
+      }
+      m_bBinaryMode = false;
+      m_bBinaryOpen = false;
+      return true;
+
+    case VSCP_BINARY_CMD_USER:
+    case VSCP_BINARY_CMD_PASS:
+    case VSCP_BINARY_CMD_CHALLENGE:
+      // Login is done in text mode before BINARY
+    default:
+      return sendBinaryReply(command, VSCP_ERROR_NOT_SUPPORTED);
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// sendBinaryFrame
+//
+
+bool
+CTcpipSession::sendBinaryFrame(const uint8_t* frame, size_t len)
+{
+  if (!isOpen() || (nullptr == frame) || (0 == len)) {
+    return false;
+  }
+
+  std::vector<uint8_t> record;
+
+  if (m_pObj->isBinaryAuthenticated()) {
+    record.resize(2 + len + 48);
+    const size_t innerLen = vscp_encryptFrameV1(record.data() + 2,
+                                                record.size() - 2,
+                                                frame,
+                                                len,
+                                                m_pObj->getBinaryAesKey(),
+                                                m_pObj->getBinaryHmacKey(),
+                                                nullptr, // Random IV
+                                                m_pObj->getBinaryEncryption());
+    if ((0 == innerLen) || (innerLen > 0xffff)) {
+      drvlog::error("[TCP/IP srv] Failed to encrypt binary frame for {}", getRemoteAddress());
+      return false;
+    }
+    record.resize(2 + innerLen);
+    record[0] = (uint8_t)(innerLen >> 8);
+    record[1] = (uint8_t)innerLen;
+  }
+  else {
+    if (len > 0xffff) {
+      return false;
+    }
+    record.reserve(2 + len);
+    record.push_back((uint8_t)(len >> 8));
+    record.push_back((uint8_t)len);
+    record.insert(record.end(), frame, frame + len);
+  }
+
+  return write((const char*)record.data(), record.size());
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// sendBinaryReply
+//
+
+bool
+CTcpipSession::sendBinaryReply(uint16_t command, uint16_t error, const uint8_t* arg, size_t arg_len)
+{
+  std::vector<uint8_t> frame(1 + 2 + 2 + arg_len + 2);
+  if (VSCP_ERROR_SUCCESS != vscp_writeReplyToFrame(frame.data(), frame.size(), command, error, arg, arg_len)) {
+    return false;
+  }
+  return sendBinaryFrame(frame.data(), frame.size());
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// sendBinaryEvent
+//
+
+bool
+CTcpipSession::sendBinaryEvent(const vscpEvent* pEvent)
+{
+  vscpEvent* pev = (vscpEvent*)pEvent;
+  const size_t size = vscp_getFrameSizeFromEvent(pev);
+  if (0 == size) {
+    return true; // Skip an event that can not be framed
+  }
+  std::vector<uint8_t> frame(size);
+  if (!vscp_writeEventToFrame(frame.data(), frame.size(), 0, pEvent)) {
+    return true;
+  }
+  if (!sendBinaryFrame(frame.data(), frame.size())) {
+    return false;
+  }
+  m_pClientItem->m_statistics.cntReceiveFrames++;
+  return true;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// popEvent
+//
+
+vscpEvent*
+CTcpipSession::popEvent(void)
+{
+  while (true) {
+    vscpEvent* pEvent = nullptr;
+    pthread_mutex_lock(&m_pClientItem->m_mutexClientInputQueue);
+    if (!m_pClientItem->m_clientInputQueue.empty()) {
+      pEvent = m_pClientItem->m_clientInputQueue.front();
+      m_pClientItem->m_clientInputQueue.pop_front();
+    }
+    pthread_mutex_unlock(&m_pClientItem->m_mutexClientInputQueue);
+
+    if (nullptr == pEvent) {
+      return nullptr;
+    }
+
+    // [[clientid == obid]] is used to detect our own events
+    if (m_pObj->m_bReceiveOwnEvents || (pEvent->obid != m_pClientItem->m_clientID)) {
+      return pEvent;
+    }
+    vscp_deleteEvent_v2(&pEvent);
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// checkSendRights
+//
+
+int
+CTcpipSession::checkSendRights(const vscpEvent* pEvent)
+{
+  if (!m_pClientItem->bAuthenticated || (nullptr == m_pClientItem->m_pUserItem)) {
+    return VSCP_ERROR_NOT_AUTHORIZED;
+  }
+
+  const uint64_t rights = m_pClientItem->m_pUserItem->getUserRights();
+
+  if ((VSCP_CLASS1_PROTOCOL == pEvent->vscp_class) && !(rights & VSCP_USER_RIGHT_ALLOW_SEND_L1CTRL_EVENT)) {
+    return VSCP_ERROR_NOT_AUTHORIZED;
+  }
+  if ((VSCP_CLASS2_PROTOCOL == pEvent->vscp_class) && !(rights & VSCP_USER_RIGHT_ALLOW_SEND_L2CTRL_EVENT)) {
+    return VSCP_ERROR_NOT_AUTHORIZED;
+  }
+  if ((VSCP_CLASS2_HLO == pEvent->vscp_class) && !(rights & VSCP_USER_RIGHT_ALLOW_SEND_HLO_EVENT)) {
+    return VSCP_ERROR_NOT_AUTHORIZED;
+  }
+  if (!m_pClientItem->m_pUserItem->isUserAllowedToSendEvent(pEvent->vscp_class, pEvent->vscp_type)) {
+    return VSCP_ERROR_NOT_AUTHORIZED;
+  }
+
+  return VSCP_ERROR_SUCCESS;
 }

@@ -65,8 +65,11 @@
 
 #include <expat.h>
 #include "mongoose.h"
+#include <openssl/crypto.h>
 
 #include "tcpipsrvdrv.h"
+#include "drvlog.h"
+#include "tcpipsession.h"
 #include <hlo.h>
 #include <remotevariablecodes.h>
 #include <vscp-class.h>
@@ -104,12 +107,32 @@ void*
 tcpipWorkerThread(void* pData);
 
 //////////////////////////////////////////////////////////////////////
+// drvlog - the driver's logger (see drvlog.h)
+//
+
+static std::shared_ptr<spdlog::logger> g_drvLogger;
+
+void
+drvlog::setLogger(std::shared_ptr<spdlog::logger> logger)
+{
+  std::atomic_store(&g_drvLogger, logger);
+}
+
+std::shared_ptr<spdlog::logger>
+drvlog::get(void)
+{
+  std::shared_ptr<spdlog::logger> logger = std::atomic_load(&g_drvLogger);
+  return logger ? logger : spdlog::default_logger();
+}
+
+//////////////////////////////////////////////////////////////////////
 // CTcpipSrvDrv
 //
 
 CTcpipSrvDrv::CTcpipSrvDrv()
 {
   m_bQuit              = false;
+  m_bThreadRunning     = false;
   m_strListenInterface = "tcp://localhost:9598";
 
   vscp_clearVSCPFilter(&m_rxfilter); // Accept all events
@@ -130,19 +153,10 @@ CTcpipSrvDrv::CTcpipSrvDrv()
 
   pthread_mutex_init(&m_mutex_UserList, NULL);
 
-  // Init pool
-  spdlog::init_thread_pool(8192, 1);
-
-  // Flush log every five seconds
-  spdlog::flush_every(std::chrono::seconds(5));
-
-  auto console = spdlog::stdout_color_mt("console");
-  // Start out with level=info. Config may change this
-  console->set_level(spdlog::level::debug);
-  console->set_pattern("[vscpl2drv-tcpipsrv: %c] [%^%l%$] %v");
-  spdlog::set_default_logger(console);
-
-  console->debug("Starting the vscpl2drv-tcpipsrv...");
+  // Logging goes to the host's default logger until the configuration
+  // sets up the driver's own logger (see drvlog.h). The driver never changes
+  // spdlog's global state, which is shared with the host.
+  drvlog::debug("Starting the vscpl2drv-tcpipsrv...");
 
   // Setting up logging defaults
   m_bConsoleLogEnable = true;
@@ -157,6 +171,12 @@ CTcpipSrvDrv::CTcpipSrvDrv()
   m_max_log_files    = 7;
 
   m_bReceiveOwnEvents = true; // Receive our own events
+
+  // Binary mode is allowed, unencrypted unless configured
+  m_bBinaryEnable    = true;
+  m_binaryEncryption = VSCP_ENCRYPTION_NONE;
+  memset(m_binaryAesKey, 0, sizeof(m_binaryAesKey));
+  memset(m_binaryHmacKey, 0, sizeof(m_binaryHmacKey));
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -166,6 +186,9 @@ CTcpipSrvDrv::CTcpipSrvDrv()
 CTcpipSrvDrv::~CTcpipSrvDrv()
 {
   close();
+
+  OPENSSL_cleanse(m_binaryAesKey, sizeof(m_binaryAesKey));
+  OPENSSL_cleanse(m_binaryHmacKey, sizeof(m_binaryHmacKey));
 
 #ifdef WIN32
   CloseHandle(m_semSendQueue);
@@ -213,8 +236,7 @@ CTcpipSrvDrv::open(std::string& path, const uint8_t* pguid)
 
   // Read configuration file
   if (!doLoadConfig(path)) {
-    spdlog::error("Failed to load configuration file [{}]", path.c_str());
-    spdlog::drop_all();
+    drvlog::error("Failed to load configuration file [{}]", path.c_str());
     return false;
   }
 
@@ -247,15 +269,16 @@ CTcpipSrvDrv::open(std::string& path, const uint8_t* pguid)
   //   spdlog::set_default_logger(logger);
   // }
 
-  spdlog::trace("---> Open");
+  drvlog::trace("---> Open");
 
   if (!startTcpipSrvThread()) {
-    spdlog::critical("Failed to start server.");
-    spdlog::drop_all();
+    drvlog::critical("Failed to start server.");
     return false;
   }
 
-  spdlog::trace("Open <---");
+  m_bThreadRunning = true;
+
+  drvlog::trace("Open <---");
 
   return true;
 }
@@ -267,21 +290,18 @@ CTcpipSrvDrv::open(std::string& path, const uint8_t* pguid)
 void
 CTcpipSrvDrv::close(void)
 {
-  // Do nothing if already terminated
-  if (m_bQuit) {
-    spdlog::drop_all();
-    return;
+  // Stop the server thread and wait for it. It owns all client connections
+  // and must be gone before the driver object is deleted.
+  if (m_bThreadRunning) {
+    m_bThreadRunning = false;
+    stopTcpipSrvThread();
   }
+  m_bQuit = true;
 
-  m_bQuit = true; // terminate the thread
-#ifndef WIN32
-  sleep(1); // Give the thread some time to terminate
-#else
-  Sleep(1000);
-#endif
-
-  spdlog::drop_all();
-  spdlog::shutdown();
+  std::shared_ptr<spdlog::logger> logger = drvlog::get();
+  if (logger) {
+    logger->flush();
+  }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -296,7 +316,7 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
     in >> m_j_config;
   }
   catch (json::parse_error) {
-    spdlog::critical("Failed to load/parse JSON configuration.");
+    drvlog::critical("Failed to load/parse JSON configuration.");
     return false;
   }
 
@@ -306,14 +326,14 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
       m_bDebug = m_j_config["debug"].get<bool>();
     }
     catch (const std::exception& ex) {
-      spdlog::error("Failed to read 'debug' Error='{}'", ex.what());
+      drvlog::error("Failed to read 'debug' Error='{}'", ex.what());
     }
     catch (...) {
-      spdlog::error("Failed to read 'debug' due to unknown error.");
+      drvlog::error("Failed to read 'debug' due to unknown error.");
     }
   }
   else {
-    spdlog::error("ReadConfig: Failed to read 'debug' Defaults will be used.");
+    drvlog::error("ReadConfig: Failed to read 'debug' Defaults will be used.");
   }
 
   // write
@@ -322,25 +342,25 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
       m_bWriteEnable = m_j_config["write"].get<bool>();
     }
     catch (const std::exception& ex) {
-      spdlog::error("Failed to read 'write' Error='{}'", ex.what());
+      drvlog::error("Failed to read 'write' Error='{}'", ex.what());
     }
     catch (...) {
-      spdlog::error("Failed to read 'write' due to unknown error.");
+      drvlog::error("Failed to read 'write' due to unknown error.");
     }
   }
   else {
-    spdlog::error(
+    drvlog::error(
       "ReadConfig: Failed to read LOGGING 'write' Defaults will be used.");
   }
 
   // VSCP key file
   if (m_j_config.contains("key-file") && m_j_config["key-file"].is_string()) {
     if (!readEncryptionKey(m_j_config["key-file"].get<std::string>())) {
-      spdlog::warn("WARNING!!! Default key will be used.");
+      drvlog::warn("WARNING!!! Default key will be used.");
     }
   }
   else {
-    spdlog::warn("WARNING!!! Default key will be used.");
+    drvlog::warn("WARNING!!! Default key will be used.");
   }
 
   // Receive own events
@@ -348,14 +368,14 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
       m_j_config["receive-sent-events"].is_boolean()) {
     m_bReceiveOwnEvents = m_j_config["receive-sent-events"].get<bool>();
     if (m_bReceiveOwnEvents) {
-      spdlog::info("Our sent event will be received.");
+      drvlog::info("Our sent event will be received.");
     }
     else {
-      spdlog::info("Our sent events will be masked.");
+      drvlog::info("Our sent events will be masked.");
     }
   }
   else {
-    spdlog::info("Our sent event will be received.");
+    drvlog::info("Our sent event will be received.");
   }
 
   // Logging
@@ -370,12 +390,12 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
         str = j["file-log-level"].get<std::string>();
       }
       catch (const std::exception& ex) {
-        spdlog::error(
+        drvlog::error(
           "[vscpl2drv-tcpipsrv]Failed to read 'file-log-level' Error='{}'",
           ex.what());
       }
       catch (...) {
-        spdlog::error("[vscpl2drv-tcpipsrv]Failed to read 'file-log-level' due "
+        drvlog::error("[vscpl2drv-tcpipsrv]Failed to read 'file-log-level' due "
                       "to unknown error.");
       }
       vscp_makeLower(str);
@@ -401,13 +421,13 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
         m_fileLogLevel = spdlog::level::trace;
       }
       else {
-        spdlog::error("ReadConfig: LOGGING 'file-log-level' has invalid value "
+        drvlog::error("ReadConfig: LOGGING 'file-log-level' has invalid value "
                       "[{}]. Default value used.",
                       str);
       }
     }
     else {
-      spdlog::error("ReadConfig: Failed to read LOGGING 'file-log-level' "
+      drvlog::error("ReadConfig: Failed to read LOGGING 'file-log-level' "
                     "Defaults will be used.");
     }
 
@@ -417,16 +437,16 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
         m_fileLogPattern = j["file-pattern"].get<std::string>();
       }
       catch (const std::exception& ex) {
-        spdlog::error("ReadConfig:Failed to read 'file-pattern' Error='{}'",
+        drvlog::error("ReadConfig:Failed to read 'file-pattern' Error='{}'",
                       ex.what());
       }
       catch (...) {
-        spdlog::error(
+        drvlog::error(
           "ReadConfig:Failed to read 'file-pattern' due to unknown error.");
       }
     }
     else {
-      spdlog::debug("ReadConfig: Failed to read LOGGING 'file-pattern' "
+      drvlog::debug("ReadConfig: Failed to read LOGGING 'file-pattern' "
                     "Defaults will be used.");
     }
 
@@ -436,15 +456,15 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
         m_path_to_log_file = j["file-path"].get<std::string>();
       }
       catch (const std::exception& ex) {
-        spdlog::error("Failed to read 'file-path' Error='{}'", ex.what());
+        drvlog::error("Failed to read 'file-path' Error='{}'", ex.what());
       }
       catch (...) {
-        spdlog::error(
+        drvlog::error(
           "ReadConfig:Failed to read 'file-path' due to unknown error.");
       }
     }
     else {
-      spdlog::error("ReadConfig: Failed to read LOGGING 'file-path' Defaults "
+      drvlog::error("ReadConfig: Failed to read LOGGING 'file-path' Defaults "
                     "will be used.");
     }
 
@@ -454,16 +474,16 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
         m_max_log_size = j["file-max-size"].get<uint32_t>();
       }
       catch (const std::exception& ex) {
-        spdlog::error("ReadConfig:Failed to read 'file-max-size' Error='{}'",
+        drvlog::error("ReadConfig:Failed to read 'file-max-size' Error='{}'",
                       ex.what());
       }
       catch (...) {
-        spdlog::error(
+        drvlog::error(
           "ReadConfig:Failed to read 'file-max-size' due to unknown error.");
       }
     }
     else {
-      spdlog::error("ReadConfig: Failed to read LOGGING 'file-max-size' "
+      drvlog::error("ReadConfig: Failed to read LOGGING 'file-max-size' "
                     "Defaults will be used.");
     }
 
@@ -473,16 +493,16 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
         m_max_log_files = j["file-max-files"].get<uint16_t>();
       }
       catch (const std::exception& ex) {
-        spdlog::error("ReadConfig:Failed to read 'file-max-files' Error='{}'",
+        drvlog::error("ReadConfig:Failed to read 'file-max-files' Error='{}'",
                       ex.what());
       }
       catch (...) {
-        spdlog::error(
+        drvlog::error(
           "ReadConfig:Failed to read 'file-max-files' due to unknown error.");
       }
     }
     else {
-      spdlog::error("ReadConfig: Failed to read LOGGING 'file-max-files' "
+      drvlog::error("ReadConfig: Failed to read LOGGING 'file-max-files' "
                     "Defaults will be used.");
     }
 
@@ -494,17 +514,17 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
         m_bConsoleLogEnable = j["console-enable-log"].get<bool>();
       }
       catch (const std::exception& ex) {
-        spdlog::error(
+        drvlog::error(
           "ReadConfig:Failed to read 'console-enable-log' Error='{}'",
           ex.what());
       }
       catch (...) {
-        spdlog::error("ReadConfig:Failed to read 'console-enable-log' due to "
+        drvlog::error("ReadConfig:Failed to read 'console-enable-log' due to "
                       "unknown error.");
       }
     }
     else {
-      spdlog::debug("ReadConfig: Failed to read LOGGING 'console-enable-log' "
+      drvlog::debug("ReadConfig: Failed to read LOGGING 'console-enable-log' "
                     "Defaults will be used.");
     }
 
@@ -515,12 +535,12 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
         str = j["console-log-level"].get<std::string>();
       }
       catch (const std::exception& ex) {
-        spdlog::error("[vscpl2drv-websocksrv]Failed to read "
+        drvlog::error("[vscpl2drv-websocksrv]Failed to read "
                       "'console-log-level' Error='{0}'",
                       ex.what());
       }
       catch (...) {
-        spdlog::error("[vscpl2drv-websocksrv]Failed to read "
+        drvlog::error("[vscpl2drv-websocksrv]Failed to read "
                       "'console-log-level' due to unknown error.");
       }
       vscp_makeLower(str);
@@ -546,7 +566,7 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
         m_consoleLogLevel = spdlog::level::trace;
       }
       else {
-        spdlog::error(
+        drvlog::error(
           "ReadConfig: LOGGING 'console-log-level' has invalid value "
           "[{}]. Default value used.",
           str);
@@ -554,55 +574,51 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
 
     } // Logging
     else {
-      spdlog::error("ReadConfig: No logging has been setup.");
+      drvlog::error("ReadConfig: No logging has been setup.");
     }
 
     ///////////////////////////////////////////////////////////////////////////
     //                          Setup logger
     ///////////////////////////////////////////////////////////////////////////
 
-    // Console log
-    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+    // The driver's own logger, with only the sinks that are enabled. It is
+    // not registered with spdlog, so the host's logging is left alone.
+    std::vector<spdlog::sink_ptr> sinks;
+
     if (m_bConsoleLogEnable) {
+      auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
       console_sink->set_level(m_consoleLogLevel);
       console_sink->set_pattern(m_consoleLogPattern);
+      sinks.push_back(console_sink);
     }
-    else {
-      // If disabled set to off
-      console_sink->set_level(spdlog::level::off);
-    }
-
-    // auto rotating =
-    // std::make_shared<spdlog::sinks::rotating_file_sink_mt>("log_filename",
-    // 1024*1024, 5, false);
-    auto rotating_file_sink =
-      std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-        m_path_to_log_file.c_str(),
-        m_max_log_size,
-        m_max_log_files);
 
     if (m_bEnableFileLog) {
-      rotating_file_sink->set_level(m_fileLogLevel);
-      rotating_file_sink->set_pattern(m_fileLogPattern);
+      try {
+        auto rotating_file_sink =
+          std::make_shared<spdlog::sinks::rotating_file_sink_mt>(m_path_to_log_file.c_str(),
+                                                                 m_max_log_size,
+                                                                 m_max_log_files);
+        rotating_file_sink->set_level(m_fileLogLevel);
+        rotating_file_sink->set_pattern(m_fileLogPattern);
+        sinks.push_back(rotating_file_sink);
+      }
+      catch (const spdlog::spdlog_ex& ex) {
+        drvlog::error("ReadConfig: Unable to open log file {}: {}", m_path_to_log_file, ex.what());
+      }
+    }
+
+    if (sinks.empty()) {
+      drvlog::setLogger(nullptr); // Use the host's logger
     }
     else {
-      // If disabled set to off
-      rotating_file_sink->set_level(spdlog::level::off);
+      auto logger = std::make_shared<spdlog::logger>("vscpl2drv-tcpipsrv", sinks.begin(), sinks.end());
+      logger->set_level(spdlog::level::trace); // The sinks filter
+      logger->flush_on(spdlog::level::warn);
+      drvlog::setLogger(logger);
     }
-
-    std::vector<spdlog::sink_ptr> sinks{ console_sink, rotating_file_sink };
-    auto logger = std::make_shared<spdlog::async_logger>(
-      "logger",
-      sinks.begin(),
-      sinks.end(),
-      spdlog::thread_pool(),
-      spdlog::async_overflow_policy::block);
-
-    spdlog::register_logger(logger);
-    spdlog::set_default_logger(logger);
   } // Logging
   else {
-    spdlog::info("ReadConfig: No logging has been setup.");
+    drvlog::info("ReadConfig: No logging has been setup.");
   }
 
   // ------------------------------------------------------------------------
@@ -613,16 +629,16 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
       m_strInterface = m_j_config["interface"].get<std::string>();
     }
     catch (const std::exception& ex) {
-      spdlog::error("ReadConfig: Failed to read 'interface' Error='{}'",
+      drvlog::error("ReadConfig: Failed to read 'interface' Error='{}'",
                     ex.what());
     }
     catch (...) {
-      spdlog::error(
+      drvlog::error(
         "ReadConfig: Failed to read 'interface' due to unknown error.");
     }
   }
   else {
-    spdlog::warn(
+    drvlog::warn(
       "ReadConfig: Failed to read 'interface' Defaults will be used.");
   }
 
@@ -631,23 +647,23 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
     try {
       m_pathUsers = m_j_config["path-users"].get<std::string>();
       if (!m_userList.loadUsersFromFile(m_pathUsers)) {
-        spdlog::critical("ReadConfig: Failed to load users from file "
+        drvlog::critical("ReadConfig: Failed to load users from file "
                          "'user-path'='{}'. Terminating!",
                          path);
         return false;
       }
     }
     catch (const std::exception& ex) {
-      spdlog::error("ReadConfig: Failed to read 'path-users' Error='{}'",
+      drvlog::error("ReadConfig: Failed to read 'path-users' Error='{}'",
                     ex.what());
     }
     catch (...) {
-      spdlog::error(
+      drvlog::error(
         "ReadConfig: Failed to read 'path-users' due to unknown error.");
     }
   }
   else {
-    spdlog::warn(
+    drvlog::warn(
       "ReadConfig: Failed to read 'path-users' Defaults will be used.");
   }
 
@@ -657,16 +673,16 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
       m_responseTimeout = m_j_config["response-timeout"].get<uint32_t>();
     }
     catch (const std::exception& ex) {
-      spdlog::error("ReadConfig: Failed to read 'response-timeout' Error='{}'",
+      drvlog::error("ReadConfig: Failed to read 'response-timeout' Error='{}'",
                     ex.what());
     }
     catch (...) {
-      spdlog::error("ReadConfig: Failed to read 'response-timeout' due to "
+      drvlog::error("ReadConfig: Failed to read 'response-timeout' due to "
                     "unknown error.");
     }
   }
   else {
-    spdlog::warn(
+    drvlog::warn(
       "ReadConfig: Failed to read 'response-timeout' Defaults will be used.");
   }
 
@@ -682,16 +698,16 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
         vscp_readFilterFromString(&m_filterIn, str.c_str());
       }
       catch (const std::exception& ex) {
-        spdlog::error("ReadConfig: Failed to read 'in-filter' Error='{}'",
+        drvlog::error("ReadConfig: Failed to read 'in-filter' Error='{}'",
                       ex.what());
       }
       catch (...) {
-        spdlog::error(
+        drvlog::error(
           "ReadConfig: Failed to read 'in-filter' due to unknown error.");
       }
     }
     else {
-      spdlog::debug("ReadConfig: Failed to read 'in-filter' Defaults "
+      drvlog::debug("ReadConfig: Failed to read 'in-filter' Defaults "
                     "will be used.");
     }
 
@@ -702,16 +718,16 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
         vscp_readMaskFromString(&m_filterIn, str.c_str());
       }
       catch (const std::exception& ex) {
-        spdlog::error("ReadConfig: Failed to read 'in-mask' Error='{}'",
+        drvlog::error("ReadConfig: Failed to read 'in-mask' Error='{}'",
                       ex.what());
       }
       catch (...) {
-        spdlog::error(
+        drvlog::error(
           "ReadConfig: Failed to read 'in-mask' due to unknown error.");
       }
     }
     else {
-      spdlog::debug(
+      drvlog::debug(
         "ReadConfig: Failed to read 'in-mask' Defaults will be used.");
     }
 
@@ -722,16 +738,16 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
         vscp_readFilterFromString(&m_filterOut, str.c_str());
       }
       catch (const std::exception& ex) {
-        spdlog::error("ReadConfig: Failed to read 'out-filter' Error='{}'",
+        drvlog::error("ReadConfig: Failed to read 'out-filter' Error='{}'",
                       ex.what());
       }
       catch (...) {
-        spdlog::error(
+        drvlog::error(
           "ReadConfig: Failed to read 'out-filter' due to unknown error.");
       }
     }
     else {
-      spdlog::debug(
+      drvlog::debug(
         "ReadConfig: Failed to read 'out-filter' Defaults will be used.");
     }
 
@@ -742,16 +758,16 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
         vscp_readMaskFromString(&m_filterOut, str.c_str());
       }
       catch (const std::exception& ex) {
-        spdlog::error("ReadConfig: Failed to read 'out-mask' Error='{}'",
+        drvlog::error("ReadConfig: Failed to read 'out-mask' Error='{}'",
                       ex.what());
       }
       catch (...) {
-        spdlog::error(
+        drvlog::error(
           "ReadConfig: Failed to read 'out-mask' due to unknown error.");
       }
     }
     else {
-      spdlog::debug(
+      drvlog::debug(
         "ReadConfig: Failed to read 'out-mask' Defaults will be used.");
     }
   }
@@ -767,14 +783,14 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
         setCaPath(j["ca"].get<std::string>());
       }
       catch (const std::exception& ex) {
-        spdlog::error("ReadConfig: Failed to read 'ca' Error='{}'", ex.what());
+        drvlog::error("ReadConfig: Failed to read 'ca' Error='{}'", ex.what());
       }
       catch (...) {
-        spdlog::error("ReadConfig: Failed to read 'ca' due to unknown error.");
+        drvlog::error("ReadConfig: Failed to read 'ca' due to unknown error.");
       }
     }
     else {
-      spdlog::debug("ReadConfig: Failed to read 'ca' Defaults will be used.");
+      drvlog::debug("ReadConfig: Failed to read 'ca' Defaults will be used.");
     }
 
     // Path to certificate
@@ -783,16 +799,16 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
         setCertPath(j["cert"].get<std::string>());
       }
       catch (const std::exception& ex) {
-        spdlog::error("ReadConfig: Failed to read 'cert' Error='{}'",
+        drvlog::error("ReadConfig: Failed to read 'cert' Error='{}'",
                       ex.what());
       }
       catch (...) {
-        spdlog::error(
+        drvlog::error(
           "ReadConfig: Failed to read 'cert' due to unknown error.");
       }
     }
     else {
-      spdlog::debug("ReadConfig: Failed to read 'cert' Defaults will be used.");
+      drvlog::debug("ReadConfig: Failed to read 'cert' Defaults will be used.");
     }
 
     // Path to private key
@@ -801,15 +817,21 @@ CTcpipSrvDrv::doLoadConfig(std::string& path)
         setKeyPath(j["key"].get<std::string>());
       }
       catch (const std::exception& ex) {
-        spdlog::error("ReadConfig: Failed to read 'key' Error='{}'", ex.what());
+        drvlog::error("ReadConfig: Failed to read 'key' Error='{}'", ex.what());
       }
       catch (...) {
-        spdlog::error("ReadConfig: Failed to read 'key' due to unknown error.");
+        drvlog::error("ReadConfig: Failed to read 'key' due to unknown error.");
       }
     }
     else {
-      spdlog::debug("ReadConfig: Failed to read 'cert' Defaults will be used.");
+      drvlog::debug("ReadConfig: Failed to read 'cert' Defaults will be used.");
     }
+  }
+
+  // Binary mode. An invalid configuration fails the open rather than
+  // running without the configured protection.
+  if (!readBinaryConfig()) {
+    return false;
   }
 
   // vscpEvent ev;
@@ -878,7 +900,7 @@ CTcpipSrvDrv::handleHLO(vscpEvent* pEvent)
 
   // Check pointers
   if (NULL == pEvent || (NULL == pEvent->pdata)) {
-    spdlog::error("HLO handler: NULL event pointer.");
+    drvlog::error("HLO handler: NULL event pointer.");
     return false;
   }
 
@@ -888,7 +910,7 @@ CTcpipSrvDrv::handleHLO(vscpEvent* pEvent)
 
   // CHLO hlo;
   // if (!hlo.parseHLO(j, pEvent )) {
-  spdlog::error("Failed to parse HLO.");
+  drvlog::error("Failed to parse HLO.");
   //     return false;
   // }
 
@@ -917,7 +939,7 @@ CTcpipSrvDrv::handleHLO(vscpEvent* pEvent)
 
   // Must be an operation
   if (!j["op"].is_string() || j["op"].is_null()) {
-    spdlog::error("HLO-command: Missing op [%s]", j.dump().c_str());
+    drvlog::error("HLO-command: Missing op [%s]", j.dump().c_str());
     return false;
   }
 
@@ -1077,7 +1099,7 @@ CTcpipSrvDrv::readVariable(vscpEventEx& ex, const json& json_req)
   // else if ("users" == j.value("name", "")) {
 
   //   if (!m_j_config["users"].is_array()) {
-  //     spdlog::warn("'users' must be of type array.");
+  //     drvlog::warn("'users' must be of type array.");
   //     j["result"] = VSCP_ERROR_SUCCESS;
   //     goto abort;
   //   }
@@ -1085,7 +1107,7 @@ CTcpipSrvDrv::readVariable(vscpEventEx& ex, const json& json_req)
   //   int index = j.value("index", 0); // get index
   //   if (index >= m_j_config["users"].size()) {
   //     // Index to large
-  //     spdlog::warn("index of array is to large [%u].",
+  //     drvlog::warn("index of array is to large [%u].",
   //                                 index >= m_j_config["users"].size());
   //     j["result"] = VSCP_ERROR_INDEX_OOB;
   //     goto abort;
@@ -1096,7 +1118,7 @@ CTcpipSrvDrv::readVariable(vscpEventEx& ex, const json& json_req)
   // }
   else {
     j["result"] = VSCP_ERROR_MISSING;
-    spdlog::error("Variable [] is unknown.");
+    drvlog::error("Variable [] is unknown.");
   }
 
 abort:
@@ -1348,14 +1370,14 @@ CTcpipSrvDrv::writeVariable(vscpEventEx& ex, const json& json_req)
 
   //   // users must be array
   //   if (!m_j_config["users"].is_array()) {
-  //     spdlog::warn("'users' must be of type array.");
+  //     drvlog::warn("'users' must be of type array.");
   //     j["result"] = VSCP_ERROR_INVALID_TYPE;
   //     goto abort;
   //   }
 
   //   // Must be object
   //   if (!m_j_config["args"].is_object()) {
-  //     spdlog::warn("The user info must be an object.");
+  //     drvlog::warn("The user info must be an object.");
   //     j["result"] = VSCP_ERROR_INVALID_TYPE;
   //     goto abort;
   //   }
@@ -1363,7 +1385,7 @@ CTcpipSrvDrv::writeVariable(vscpEventEx& ex, const json& json_req)
   //   int index = j.value("index", 0); // get index
   //   if (index >= m_j_config["users"].size()) {
   //     // Index to large
-  //     spdlog::warn("index of array is to large [%u].",
+  //     drvlog::warn("index of array is to large [%u].",
   //                                 index >= m_j_config["users"].size());
   //     j["result"] = VSCP_ERROR_INDEX_OOB;
   //     goto abort;
@@ -1376,7 +1398,7 @@ CTcpipSrvDrv::writeVariable(vscpEventEx& ex, const json& json_req)
   // }
   else {
     j["result"] = VSCP_ERROR_MISSING;
-    spdlog::error("Variable [] is unknown.");
+    drvlog::error("Variable [] is unknown.");
   }
 
 abort:
@@ -1405,14 +1427,14 @@ CTcpipSrvDrv::deleteVariable(vscpEventEx& ex, const json& json_reg)
 
     // users must be array
     if (!m_j_config["users"].is_array()) {
-      spdlog::warn("'users' must be of type array.");
+      drvlog::warn("'users' must be of type array.");
       j["result"] = VSCP_ERROR_INVALID_TYPE;
       goto abort;
     }
 
     // Must be object
     if (!m_j_config["args"].is_object()) {
-      spdlog::warn("The user info must be an object.");
+      drvlog::warn("The user info must be an object.");
       j["result"] = VSCP_ERROR_INVALID_TYPE;
       goto abort;
     }
@@ -1420,7 +1442,7 @@ CTcpipSrvDrv::deleteVariable(vscpEventEx& ex, const json& json_reg)
     int index = j.value("index", 0); // get index
     if (index >= m_j_config["users"].size()) {
       // Index to large
-      spdlog::warn("index of array is to large [%u].",
+      drvlog::warn("index of array is to large [%u].",
                    index >= m_j_config["users"].size());
       j["result"] = VSCP_ERROR_INDEX_OOB;
       goto abort;
@@ -1430,7 +1452,7 @@ CTcpipSrvDrv::deleteVariable(vscpEventEx& ex, const json& json_reg)
   }
   else {
     j["result"] = VSCP_ERROR_MISSING;
-    spdlog::warn("Variable [%s] is unknown.", j.value("name", "").c_str());
+    drvlog::warn("Variable [%s] is unknown.", j.value("name", "").c_str());
   }
 
 abort:
@@ -1470,11 +1492,11 @@ bool
 CTcpipSrvDrv::restart(void)
 {
   if (!stop()) {
-    spdlog::warn("Failed to stop VSCP tcp/ip server.");
+    drvlog::warn("Failed to stop VSCP tcp/ip server.");
   }
 
   if (!start()) {
-    spdlog::warn("Failed to start VSCP tcp/ip server.");
+    drvlog::warn("Failed to start VSCP tcp/ip server.");
   }
 
   return true;
@@ -1489,7 +1511,7 @@ CTcpipSrvDrv::eventExToReceiveQueue(vscpEventEx& ex)
 {
   vscpEvent* pev = new vscpEvent();
   if (!vscp_convertEventExToEvent(pev, &ex)) {
-    spdlog::error("Failed to convert event from ex to ev.");
+    drvlog::error("Failed to convert event from ex to ev.");
     vscp_deleteEvent(pev);
     return false;
   }
@@ -1510,7 +1532,7 @@ CTcpipSrvDrv::eventExToReceiveQueue(vscpEventEx& ex)
     }
   }
   else {
-    spdlog::error("Unable to allocate event storage.");
+    drvlog::error("Unable to allocate event storage.");
   }
   return true;
 }
@@ -1565,18 +1587,18 @@ CTcpipSrvDrv::sendEventToClient(CClientItem* pClientItem,
 {
   // Must be valid pointers
   if (NULL == pClientItem) {
-    spdlog::error("sendEventToClient - Pointer to clientitem is null");
+    drvlog::error("sendEventToClient - Pointer to clientitem is null");
     return false;
   }
   if (NULL == pEvent) {
-    spdlog::error("sendEventToClient - Pointer to event is null");
+    drvlog::error("sendEventToClient - Pointer to event is null");
     return false;
   }
 
   // Check if filtered out - if so do nothing here
   if (!vscp_doLevel2Filter(pEvent, &pClientItem->m_filter)) {
     if (m_j_config.contains("debug") && m_j_config["debug"].get<bool>()) {
-      spdlog::debug("sendEventToClient - Filtered out");
+      drvlog::debug("sendEventToClient - Filtered out");
     }
     return false;
   }
@@ -1586,7 +1608,7 @@ CTcpipSrvDrv::sendEventToClient(CClientItem* pClientItem,
   if (pClientItem->m_clientInputQueue.size() >
       m_j_config.value("max-out-queue", MAX_ITEMS_IN_QUEUE)) {
     if (m_j_config.contains("debug") && m_j_config["debug"].get<bool>()) {
-      spdlog::debug("sendEventToClient - overrun");
+      drvlog::debug("sendEventToClient - overrun");
     }
     // Overrun
     pClientItem->m_statistics.cntOverruns++;
@@ -1628,7 +1650,7 @@ CTcpipSrvDrv::sendEventAllClients(const vscpEvent* pEvent)
   std::deque<CClientItem*>::iterator it;
 
   if (NULL == pEvent) {
-    spdlog::error("sendEventAllClients - No event to send");
+    drvlog::error("sendEventAllClients - No event to send");
     return false;
   }
 
@@ -1640,11 +1662,11 @@ CTcpipSrvDrv::sendEventAllClients(const vscpEvent* pEvent)
 
     if (NULL != pClientItem) {
       if (m_j_config.contains("debug") && m_j_config["debug"].get<bool>()) {
-        spdlog::debug("Send event to client [%s]",
+        drvlog::debug("Send event to client [%s]",
                       pClientItem->m_strDeviceName.c_str());
       }
       if (!sendEventToClient(pClientItem, pEvent)) {
-        spdlog::error("sendEventAllClients - Failed to send event");
+        drvlog::error("sendEventAllClients - Failed to send event");
       }
     }
   }
@@ -1662,11 +1684,37 @@ bool
 CTcpipSrvDrv::startTcpipSrvThread(void)
 {
   if (__VSCP_DEBUG_TCP) {
-    spdlog::debug("Controlobject: Starting TCP/IP interface...");
+    drvlog::debug("Controlobject: Starting TCP/IP interface...");
   }
 
   if (m_j_config.contains("interface") && m_j_config["interface"].is_string()) {
     m_strListenInterface = m_j_config["interface"].get<std::string>();
+  }
+  vscp_trim(m_strListenInterface);
+
+  // "stcp://" asks for TLS. Mongoose listens on "tcp://"; TLS is enabled by
+  // the certificate in the "tls" section, which is then required.
+  bool bRequireTls = false;
+  if (0 == m_strListenInterface.compare(0, 7, "stcp://")) {
+    m_strListenInterface = "tcp://" + m_strListenInterface.substr(7);
+    bRequireTls          = true;
+  }
+
+  // Accept the older forms "9598" and "host:9598" as well as "tcp://host:9598"
+  if (std::string::npos == m_strListenInterface.find("://")) {
+    bool bOnlyDigits = !m_strListenInterface.empty() &&
+                       (std::string::npos == m_strListenInterface.find_first_not_of("0123456789"));
+    m_strListenInterface = bOnlyDigits ? ("tcp://0.0.0.0:" + m_strListenInterface)
+                                       : ("tcp://" + m_strListenInterface);
+  }
+
+  if (!loadTlsFiles()) {
+    return false;
+  }
+
+  if (bRequireTls && !isTlsEnabled()) {
+    drvlog::error("TCP/IP srv: Interface uses stcp:// but no TLS certificate is configured (tls.cert)");
+    return false;
   }
 
   m_bQuit = false;
@@ -1675,7 +1723,7 @@ CTcpipSrvDrv::startTcpipSrvThread(void)
                      NULL,
                      tcpipWorkerThread,
                      this)) {
-    spdlog::error("Controlobject: Unable to start the tcp/ip listen thread.");
+    drvlog::error("Controlobject: Unable to start the tcp/ip listen thread.");
     return false;
   }
 
@@ -1693,16 +1741,197 @@ CTcpipSrvDrv::stopTcpipSrvThread(void)
   m_bQuit = true;
 
   if (__VSCP_DEBUG_TCP) {
-    spdlog::debug("Controlobject: Terminating TCP thread.");
+    drvlog::debug("Controlobject: Terminating TCP thread.");
   }
 
   pthread_join(m_tcpipListenThread, NULL);
 
   if (__VSCP_DEBUG_TCP) {
-    spdlog::debug("Controlobject: Terminated TCP thread.");
+    drvlog::debug("Controlobject: Terminated TCP thread.");
   }
 
   return true;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// readBinaryConfig
+//
+// "binary" : {
+//   "enable" : true,
+//   "encryption" : "aes256",            // "none", "aes128", "aes192", "aes256"
+//   "key" : "<hex, 32/48/64 chars>",
+//   "hmac-key" : "<hex, 64 chars>"
+// }
+//
+
+bool
+CTcpipSrvDrv::readBinaryConfig(void)
+{
+  m_bBinaryEnable    = true;
+  m_binaryEncryption = VSCP_ENCRYPTION_NONE;
+  OPENSSL_cleanse(m_binaryAesKey, sizeof(m_binaryAesKey));
+  OPENSSL_cleanse(m_binaryHmacKey, sizeof(m_binaryHmacKey));
+
+  if (!m_j_config.contains("binary")) {
+    return true;
+  }
+
+  const json& j = m_j_config["binary"];
+  if (!j.is_object()) {
+    drvlog::error("ReadConfig: 'binary' must be an object");
+    return false;
+  }
+
+  if (j.contains("enable")) {
+    if (!j["enable"].is_boolean()) {
+      drvlog::error("ReadConfig: 'binary.enable' must be true or false");
+      return false;
+    }
+    m_bBinaryEnable = j["enable"].get<bool>();
+  }
+
+  std::string strEncryption = "none";
+  if (j.contains("encryption")) {
+    if (!j["encryption"].is_string()) {
+      drvlog::error("ReadConfig: 'binary.encryption' must be a string");
+      return false;
+    }
+    strEncryption = vscp_lower(j["encryption"].get<std::string>());
+    vscp_trim(strEncryption);
+  }
+
+  size_t keyLength = 0;
+  uint8_t encryption = VSCP_ENCRYPTION_NONE;
+  if (("none" == strEncryption) || strEncryption.empty()) {
+    if ((j.contains("key") && j["key"].is_string() && !j["key"].get<std::string>().empty()) ||
+        (j.contains("hmac-key") && j["hmac-key"].is_string() && !j["hmac-key"].get<std::string>().empty())) {
+      drvlog::warn("ReadConfig: binary keys are set but 'binary.encryption' is \"none\"; binary mode is not encrypted");
+    }
+    return true;
+  }
+  else if ("aes128" == strEncryption) {
+    encryption = VSCP_ENCRYPTION_AES128;
+    keyLength  = 16;
+  }
+  else if ("aes192" == strEncryption) {
+    encryption = VSCP_ENCRYPTION_AES192;
+    keyLength  = 24;
+  }
+  else if ("aes256" == strEncryption) {
+    encryption = VSCP_ENCRYPTION_AES256;
+    keyLength  = 32;
+  }
+  else {
+    drvlog::error("ReadConfig: 'binary.encryption' must be none, aes128, aes192 or aes256");
+    return false;
+  }
+
+  std::string strKey     = (j.contains("key") && j["key"].is_string()) ? j["key"].get<std::string>() : "";
+  std::string strHmacKey = (j.contains("hmac-key") && j["hmac-key"].is_string()) ? j["hmac-key"].get<std::string>() : "";
+  vscp_trim(strKey);
+  vscp_trim(strHmacKey);
+
+  auto isHex = [](const std::string& s) {
+    return std::string::npos == s.find_first_not_of("0123456789abcdefABCDEF");
+  };
+
+  uint8_t aesKey[32]  = { 0 };
+  uint8_t hmacKey[32] = { 0 };
+  bool ok = (strKey.length() == 2 * keyLength) && isHex(strKey) && (64 == strHmacKey.length()) &&
+            isHex(strHmacKey) && (keyLength == vscp_hexStr2ByteArray(aesKey, keyLength, strKey.c_str())) &&
+            (32 == vscp_hexStr2ByteArray(hmacKey, 32, strHmacKey.c_str()));
+  if (!ok) {
+    drvlog::error("ReadConfig: 'binary.key' must be {} hex characters and 'binary.hmac-key' 64 hex characters",
+                  2 * keyLength);
+  }
+  else if (0 == CRYPTO_memcmp(aesKey, hmacKey, keyLength)) {
+    drvlog::error("ReadConfig: 'binary.key' and 'binary.hmac-key' must be different");
+    ok = false;
+  }
+
+  if (ok) {
+    m_binaryEncryption = encryption;
+    memcpy(m_binaryAesKey, aesKey, sizeof(aesKey));
+    memcpy(m_binaryHmacKey, hmacKey, sizeof(hmacKey));
+    drvlog::info("ReadConfig: Binary mode uses authenticated encryption ({} + HMAC-SHA-256)", strEncryption);
+  }
+
+  OPENSSL_cleanse(aesKey, sizeof(aesKey));
+  OPENSSL_cleanse(hmacKey, sizeof(hmacKey));
+  strKey.assign(strKey.size(), '\0');
+  strHmacKey.assign(strHmacKey.size(), '\0');
+  return ok;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// loadTlsFiles
+//
+
+static bool
+readWholeFile(const std::string& path, std::string& content)
+{
+  std::ifstream in(path, std::ios::binary);
+  if (!in.good()) {
+    return false;
+  }
+  std::stringstream ss;
+  ss << in.rdbuf();
+  content = ss.str();
+  return !content.empty();
+}
+
+bool
+CTcpipSrvDrv::loadTlsFiles(void)
+{
+  m_tlsCert.clear();
+  m_tlsKey.clear();
+  m_tlsCa.clear();
+
+  if (m_cert_path.empty()) {
+    return true; // No TLS
+  }
+
+  if (!readWholeFile(m_cert_path, m_tlsCert)) {
+    drvlog::error("TCP/IP srv: Unable to read TLS certificate {}", m_cert_path);
+    return false;
+  }
+
+  // The key may be in the certificate file
+  const std::string keyPath = m_key_path.empty() ? m_cert_path : m_key_path;
+  if (!readWholeFile(keyPath, m_tlsKey)) {
+    drvlog::error("TCP/IP srv: Unable to read TLS key {}", keyPath);
+    m_tlsCert.clear();
+    return false;
+  }
+
+  // A CA makes the server require and verify client certificates
+  if (!m_ca_path.empty() && !readWholeFile(m_ca_path, m_tlsCa)) {
+    drvlog::error("TCP/IP srv: Unable to read TLS CA {}", m_ca_path);
+    m_tlsCert.clear();
+    m_tlsKey.clear();
+    return false;
+  }
+
+  drvlog::info("TCP/IP srv: TLS enabled{}", m_tlsCa.empty() ? "" : " with client certificate verification");
+  return true;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// initTls
+//
+
+bool
+CTcpipSrvDrv::initTls(struct mg_connection* conn)
+{
+  struct mg_tls_opts opts;
+  memset(&opts, 0, sizeof(opts));
+  opts.cert = mg_str_n(m_tlsCert.data(), m_tlsCert.size());
+  opts.key  = mg_str_n(m_tlsKey.data(), m_tlsKey.size());
+  if (!m_tlsCa.empty()) {
+    opts.ca = mg_str_n(m_tlsCa.data(), m_tlsCa.size());
+  }
+  mg_tls_init(conn, &opts); // Closes the connection on failure
+  return !conn->is_closing;
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1821,7 +2050,7 @@ CTcpipSrvDrv::readEncryptionKey(const std::string& path)
     return vscp_hexStr2ByteArray(m_vscp_key, 32, strStream.str().c_str());
   }
   catch (...) {
-    spdlog::error("Failed to read encryption key file [%s]", m_path.c_str());
+    drvlog::error("Failed to read encryption key file [%s]", m_path.c_str());
     return false;
   }
 
@@ -1835,31 +2064,73 @@ CTcpipSrvDrv::readEncryptionKey(const std::string& path)
 static void
 serverCallbackFunc(struct mg_connection* conn, int ev, void* ev_data)
 {
-  CTcpipSrvDrv* pDriverObj = (CTcpipSrvDrv*)ev_data;
+  // The user pointer given to mg_listen is inherited by accepted connections
+  CTcpipSrvDrv* pDriverObj = (CTcpipSrvDrv*)conn->fn_data;
   if (nullptr == pDriverObj) {
-    spdlog::critical("TCP/IP srv: serverCallbackFunc: driver object is nullptr");
+    drvlog::critical("TCP/IP srv: serverCallbackFunc: driver object is nullptr");
     return;
   }
 
-  if (ev == MG_EV_OPEN && conn->is_listening == 1) {
-    conn->is_hexdumping = 1;
-    spdlog::debug("SERVER is listening");
-  }
-  else if (ev == MG_EV_ACCEPT) {
-    (void)pDriverObj;
-    spdlog::debug("SERVER accepted a connection");
-  }
-  else if (ev == MG_EV_READ) {
-    struct mg_iobuf* r = &conn->recv;
-    spdlog::debug("SERVER got data ({} bytes)", (unsigned long)r->len);
-    mg_send(conn, r->buf, r->len); // echo it back
-    r->len = 0;                    // Tell Mongoose we've consumed data
-  }
-  else if (ev == MG_EV_CLOSE) {
-    spdlog::debug("SERVER disconnected");
-  }
-  else if (ev == MG_EV_ERROR) {
-    spdlog::debug("SERVER error");
+  // The session of an accepted connection is kept in the connection's
+  // scratch space
+  static_assert(sizeof(CTcpipSession*) <= MG_DATA_SIZE, "MG_DATA_SIZE too small");
+  CTcpipSession* pSession = nullptr;
+  memcpy(&pSession, conn->data, sizeof(pSession));
+
+  switch (ev) {
+
+    case MG_EV_OPEN:
+      if (conn->is_listening) {
+        drvlog::debug("TCP/IP srv: Listening on {}", pDriverObj->getListeningInterface());
+      }
+      break;
+
+    case MG_EV_ACCEPT: {
+      // TLS if a certificate is configured
+      if (pDriverObj->isTlsEnabled() && !pDriverObj->initTls(conn)) {
+        conn->is_closing = 1;
+        break;
+      }
+
+      pSession = new (std::nothrow) CTcpipSession(pDriverObj, conn);
+      if (nullptr == pSession) {
+        conn->is_closing = 1;
+        break;
+      }
+      memcpy(conn->data, &pSession, sizeof(pSession));
+      if (!pSession->onAccept()) {
+        pSession->close();
+      }
+    } break;
+
+    case MG_EV_READ:
+      if (nullptr != pSession) {
+        struct mg_iobuf* r = &conn->recv;
+        pSession->onRead((const char*)r->buf, r->len);
+        r->len = 0; // All data consumed
+      }
+      break;
+
+    case MG_EV_POLL:
+      if (nullptr != pSession) {
+        pSession->onPoll();
+      }
+      break;
+
+    case MG_EV_ERROR:
+      drvlog::debug("TCP/IP srv: Connection error: {}", (const char*)ev_data);
+      break;
+
+    case MG_EV_CLOSE:
+      if (nullptr != pSession) {
+        delete pSession; // Unregisters the client
+        pSession = nullptr;
+        memcpy(conn->data, &pSession, sizeof(pSession));
+      }
+      break;
+
+    default:
+      break;
   }
 }
 
@@ -1873,7 +2144,7 @@ tcpipWorkerThread(void* pData)
   struct mg_mgr mgr;
   CTcpipSrvDrv* ptcpipsrvdrv = (CTcpipSrvDrv*)pData;
   if (NULL == ptcpipsrvdrv) {
-    spdlog::critical(
+    drvlog::critical(
       "TCP/IP client is missing driver object data. Terminating thread.");
     return NULL;
   }
@@ -1885,18 +2156,19 @@ tcpipWorkerThread(void* pData)
                      ptcpipsrvdrv->getListeningInterface().c_str(),
                      serverCallbackFunc,
                      ptcpipsrvdrv)) {
-    spdlog::error("[TCP/IP srv thread] Failed to init listening socket.");
+    drvlog::error("[TCP/IP srv thread] Failed to init listening socket.");
     mg_mgr_free(&mgr);
     return NULL;
   }
 
-  spdlog::debug("[TCP/IP srv listen thread] Started.");
+  drvlog::debug("[TCP/IP srv listen thread] Started.");
 
   // Work on
   while (!ptcpipsrvdrv->shouldQuit()) {
 
-    // Poll all open sockets
-    mg_mgr_poll(&mgr, 100);
+    // Poll all open sockets. The interval sets how fast events reach
+    // clients in receive loop mode.
+    mg_mgr_poll(&mgr, 20);
 
     //     pfd = pListenObj->m_conn.fd;
     //     memset(pfd, 0, sizeof(*pfd));
@@ -1923,7 +2195,7 @@ tcpipWorkerThread(void* pData)
 
     //           conn = stcp_new_connection(); // Init connection
     //           if (NULL == conn) {
-    //             spdlog::error("[TCP/IP srv] -- Memory problem when creating "
+    //             drvlog::error("[TCP/IP srv] -- Memory problem when creating "
     //                           "conn object.");
     //             continue;
     //           }
@@ -1942,12 +2214,12 @@ tcpipWorkerThread(void* pData)
     //                           &(conn->client))) {
 
     //             stcp_init_client_connection(conn, &opts);
-    //             spdlog::debug("[TCP/IP srv] -- Connection accept.");
+    //             drvlog::debug("[TCP/IP srv] -- Connection accept.");
 
     //             // Create the thread object
     //             CTcpipSrv* pClientObj = new CTcpipSrv(pListenObj);
     //             if (NULL == pClientObj) {
-    //               spdlog::error("[TCP/IP srv] -- Memory problem when "
+    //               drvlog::error("[TCP/IP srv] -- Memory problem when "
     //                             "creating client thread.");
     //               stcp_close_connection(conn);
     //               conn = NULL;
@@ -1956,13 +2228,13 @@ tcpipWorkerThread(void* pData)
 
     //             pClientObj->m_conn    = conn;
     //             pClientObj->m_pParent = pListenObj;
-    //             spdlog::debug("Controlobject: Starting client tcp/ip
+    //             drvlog::debug("Controlobject: Starting client tcp/ip
     //             thread..."); int err; if ((err =
     //             pthread_create(&pClientObj->m_tcpipClientThread,
     //                                       NULL,
     //                                       tcpipClientThread,
     //                                       pClientObj))) {
-    //               spdlog::error("[TCP/IP srv] -- Failed to run client "
+    //               drvlog::error("[TCP/IP srv] -- Failed to run client "
     //                             "tcp/ip client thread. error=%d",
     //                             err);
     //               delete pClientObj;
@@ -1989,7 +2261,7 @@ tcpipWorkerThread(void* pData)
 
   } // poll
 
-  spdlog::debug("[TCP/IP srv listen thread] Preparing Exit.");
+  drvlog::debug("[TCP/IP srv listen thread] Preparing Exit.");
 
 // Wait for clients to terminate
 //   int loopCnt = 0;
@@ -2028,6 +2300,6 @@ tcpipWorkerThread(void* pData)
 // if (pObj->m_j_config.value("ssl_certificate", "").length()) {
 //   stcp_uninit_ssl();
 // }
-  spdlog::debug("[TCP/IP srv listen thread] Exit.");
+  drvlog::debug("[TCP/IP srv listen thread] Exit.");
   return NULL;
 }
