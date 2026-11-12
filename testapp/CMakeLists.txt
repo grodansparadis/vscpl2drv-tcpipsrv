@@ -19,7 +19,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 #
 
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.18...3.31)
 project(testapp LANGUAGES CXX C)
 set(PACKAGE_AUTHOR "Ake Hedman, the VSCP Project")
 
@@ -27,6 +27,9 @@ set(PACKAGE_AUTHOR "Ake Hedman, the VSCP Project")
 include(GNUInstallDirs)
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
+
+# Third party sources (vscp, json, spdlog, mustache, sha256)
+include(${PROJECT_SOURCE_DIR}/../cmake/dependencies.cmake)
 
 # Disable abi warnings (nlohmann)
 if(WIN32)
@@ -61,7 +64,7 @@ else()
 endif()
 
 #openssl
-#find_package(OpenSSL REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 # Expat C library
 if(WIN32)
@@ -79,37 +82,39 @@ endif()
 
 add_executable(${PROJECT_NAME})
 target_sources(${PROJECT_NAME} PRIVATE main.cpp
-  ../third-party/Mustache/mustache.hpp
-  ../third-party/spdlog/include
-  ../third-party/vscp/src/vscp/common/guid.h
-  ../third-party/vscp/src/vscp/common/guid.cpp 
-  ../third-party/vscp/src/vscp/common/vscp.h
-  ../third-party/vscp/src/vscp/common/vscpdatetime.h
-  ../third-party/vscp/src/vscp/common/vscpdatetime.cpp
-  ../third-party/vscp/src/vscp/common/vscphelper.h
-  ../third-party/vscp/src/vscp/common/vscphelper.cpp
-  ../third-party/vscp/src/vscp/common/canal.h
-  ../third-party/vscp/src/common/vscpbase64.h
-  ../third-party/vscp/src/common/vscpbase64.c
-  ../third-party/vscp/src/common/vscp-aes.h
-  ../third-party/vscp/src/common/vscp-aes.c
-  ../third-party/vscp/src/common/crc.h
-  ../third-party/vscp/src/common/crc.c
-  ../third-party/vscp/src/common/crc8.h
-  ../third-party/vscp/src/common/crc8.c
-  ../third-party/vscp/src/common/vscpmd5.h
-  ../third-party/vscp/src/common/vscpmd5.c
-  ../third-party/crypto-algorithms/sha256.h
-  ../third-party/crypto-algorithms/sha256.c)
+  ${MUSTACHE_DIR}/mustache.hpp
+  ${VSCP_DIR}/src/vscp/common/guid.h
+  ${VSCP_DIR}/src/vscp/common/guid.cpp 
+  ${VSCP_DIR}/src/vscp/common/vscp.h
+  ${VSCP_DIR}/src/vscp/common/vscpdatetime.h
+  ${VSCP_DIR}/src/vscp/common/vscpdatetime.cpp
+  ${VSCP_DIR}/src/vscp/common/vscphelper.h
+  ${VSCP_DIR}/src/vscp/common/vscphelper.cpp
+  ${VSCP_DIR}/src/vscp/common/vscphelperlogging.cpp
+  ${VSCP_DIR}/src/vscp/common/vscphelperlogging-forward.cpp
+  ${VSCP_DIR}/src/common/vscphelper-common.cpp
+  ${VSCP_DIR}/src/vscp/common/canal.h
+  ${VSCP_DIR}/src/common/vscpbase64.h
+  ${VSCP_DIR}/src/common/vscpbase64.c
+  ${VSCP_DIR}/src/common/vscp-aes.h
+  ${VSCP_DIR}/src/common/vscp-aes.c
+  ${VSCP_DIR}/src/common/crc.h
+  ${VSCP_DIR}/src/common/crc.c
+  ${VSCP_DIR}/src/common/crc8.h
+  ${VSCP_DIR}/src/common/crc8.c
+  ${VSCP_DIR}/src/common/vscpmd5.h
+  ${VSCP_DIR}/src/common/vscpmd5.c
+  ${CRYPTO_ALGORITHMS_DIR}/sha256.h
+  ${CRYPTO_ALGORITHMS_DIR}/sha256.c)
 
 # Include directories
 if (WIN32)  
   target_include_directories(${PROJECT_NAME} PRIVATE
     src/
-    ../third-party/vscp/src/vscp/common/  
-    ../third-party/vscp/src/common/
-    ../third-party/json/single_include/
-    ../third-party/spdlog/include/
+    ${VSCP_DIR}/src/vscp/common/  
+    ${VSCP_DIR}/src/common/
+    ${NLOHMANN_JSON_DIR}/single_include/
+    ${SPDLOG_DIR}/include/
     ${CMAKE_BINARY_DIR}
     ${THREAD_INCLUDE_DIR}
     ${LOCAL_WIN_INCLUDE}
@@ -122,10 +127,10 @@ if (WIN32)
 else()
   target_include_directories(${PROJECT_NAME} PRIVATE
     src/
-    ../third-party/vscp/src/vscp/common/
-    ../third-party/vscp/src/common
-    ../third-party/json/single_include/
-    ../third-party/spdlog/include/
+    ${VSCP_DIR}/src/vscp/common/
+    ${VSCP_DIR}/src/common
+    ${NLOHMANN_JSON_DIR}/single_include/
+    ${SPDLOG_DIR}/include/
     ${CMAKE_BINARY_DIR}
     ${THREAD_INCLUDE_DIR}
   )
@@ -136,6 +141,7 @@ if (WIN32)
   target_link_libraries(${PROJECT_NAME} PRIVATE     
     expat::expat
     dlfcn-win32::dl
+    OpenSSL::Crypto
   )
   
   # Add threading library if found
@@ -148,6 +154,7 @@ else()
     m
     dl
     ${EXPAT_LIBRARIES}
+    OpenSSL::Crypto
   )
   
   # Add threading library

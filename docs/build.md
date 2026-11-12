@@ -1,14 +1,14 @@
 ## Build from source on Linux
 
 ```bash
-git clone --recurse-submodules -j4 https://github.com/grodansparadis/vscpl2drv-websocksrv.git
+git clone https://github.com/grodansparadis/vscpl2drv-tcpipsrv.git
 sudo apt install pandoc           (comment: *optional*)
 sudo apt install build-essential
 sudo apt install cmake
 sudo apt install libexpat-dev
 sudo apt install libssl-dev
 sudo apt install rpm (comment: only if you want to create rpm install packages)
-cd vscpl2drv-websocksrv
+cd vscpl2drv-tcpipsrv
 mkdir build
 cd build
 cmake ..
@@ -72,7 +72,7 @@ Full usage is describe [here](https://docs.microsoft.com/en-us/cpp/build/manage-
 ### Get the source for the driver
 
 ```bash
-git clone --recursive https://github.com/grodansparadis/vscpl2drv-websocksrv.git
+git clone https://github.com/grodansparadis/vscpl2drv-tcpipsrv.git
 ```
 
 ### Build the driver
@@ -80,7 +80,7 @@ git clone --recursive https://github.com/grodansparadis/vscpl2drv-websocksrv.git
 Build as usual but use
 
 ```bash
-cd vscpl2drv-websocksrv
+cd vscpl2drv-tcpipsrv
 mkdir build
 cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release -DVCPKG_ROOT=G:/vcpkg/ -DCMAKE_TOOLCHAIN_FILE=G:/vcpkg/scripts/buildsystems/vcpkg.cmake -G "Visual Studio 17 2022" -A x64

@@ -53,7 +53,7 @@ tbd
 
 ## How to build the driver on Linux
 
-- git clone --recurse-submodules -j8 https://github.com/grodansparadis/vscpl2drv-tcpipsrv.git
+- git clone https://github.com/grodansparadis/vscpl2drv-tcpipsrv.git
 - sudo apt install pandoc           (comment: optional)
 - sudo apt install build-essential
 - sudo apt install cmake
@@ -71,6 +71,8 @@ tbd
 
 
 Install of _pandoc_ is only needed if man pages needs to be rebuilt. This is normally already done and available in the repository.
+
+The third-party sources (vscp, mongoose, nlohmann/json, spdlog, mustache and crypto-algorithms) are downloaded by CMake the first time it configures the build, so the first `cmake ..` needs network access. Each one is pinned to a commit and checked against a SHA-256 hash in [cmake/dependencies.cmake](cmake/dependencies.cmake). To use a local copy instead, for example of the vscp repository, add `-DFETCHCONTENT_SOURCE_DIR_VSCP=/path/to/vscp`.
 
 ## How to build the driver on Windows
 
