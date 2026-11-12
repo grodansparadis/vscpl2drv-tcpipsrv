@@ -863,3 +863,22 @@ It is very easy to interface VSCP Level II drivers from other software. Full inf
  * The VSCP site - https://www.vscp.org
  * The VSCP document site - https://docs.vscp.org/
  * VSCP discussions - https://github.com/grodansparadis/vscp/discussions
+
+## License
+
+vscpl2drv-tcpipsrv is free software, licensed under the [GNU General Public License version 2](LICENSE) only (SPDX: `GPL-2.0-only`).
+
+The driver includes third-party code under its own licenses:
+
+| Component | License |
+| --------- | ------- |
+| [mongoose](https://github.com/cesanta/mongoose) | GPL-2.0-only, or a commercial license from Cesanta |
+| [VSCP helper code](https://github.com/grodansparadis/vscp) | MIT |
+| [nlohmann/json](https://github.com/nlohmann/json) | MIT |
+| [spdlog](https://github.com/gabime/spdlog) | MIT |
+| [mustache](https://github.com/kainjow/Mustache) | Boost Software License 1.0 |
+| [crypto-algorithms](https://github.com/B-Con/crypto-algorithms) | Public domain |
+
+At run time the driver links OpenSSL, expat and libcurl from the system.
+
+The documentation in the `docs` folder is licensed under [Creative Commons BY 4.0](https://creativecommons.org/licenses/by/4.0/).
