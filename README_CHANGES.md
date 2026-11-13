@@ -7,6 +7,8 @@ tagged, rename **Unreleased** to the version and date, and start a new
 
 ## Unreleased
 
+- Add scripts/download-artifacts.sh to download and verify the newest CI build artifacts
+- CI writes a SHA256SUMS-<artifact> checksum file into every uploaded build artifact
 - Fetch third-party sources with CMake FetchContent instead of submodules (0ed5cb7)
 - Copyright year changed (7c95bcb)
 - Change the license to GPL version 2 only (340bea0)

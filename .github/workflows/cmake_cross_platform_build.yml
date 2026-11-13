@@ -583,6 +583,21 @@ jobs:
         ls -la *.dmg *.tar.gz *.tgz 2>/dev/null || echo "No packages generated"
 
     # Upload artifacts
+    - name: Write SHA256SUMS
+      id: sha256sums_587
+      continue-on-error: true
+      shell: bash
+      run: |
+        bash .github/scripts/write-sha256sums.sh "SHA256SUMS-vscpl2drv-tcpipsrv-${{ needs.version.outputs.version }}-${{ matrix.os }}" <<'SHA256SUMS_PATTERNS'
+        ${{github.workspace}}/build/*.deb
+        ${{github.workspace}}/build/*.rpm
+        ${{github.workspace}}/build/*.tar.gz
+        ${{github.workspace}}/build/*.tgz
+        ${{github.workspace}}/build/*.dmg
+        ${{github.workspace}}/build/*.exe
+        ${{github.workspace}}/build/*.zip
+        SHA256SUMS_PATTERNS
+
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -595,6 +610,7 @@ jobs:
           ${{github.workspace}}/build/*.dmg
           ${{github.workspace}}/build/*.exe
           ${{github.workspace}}/build/*.zip
+          ${{ steps.sha256sums_587.outputs.file }}
         retention-days: 30
 
   # Release job (only on tags)
