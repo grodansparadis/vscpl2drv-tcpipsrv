@@ -64,7 +64,7 @@ jobs:
       continue-on-error: true
       shell: bash
       run: |
-        bash .github/scripts/write-sha256sums.sh "SHA256SUMS-${{ matrix.os }}_vscpl2drv-tcpipsrv_15.1.0.deb" <<'SHA256SUMS_PATTERNS'
+        bash "${GITHUB_WORKSPACE//\\//}/.github/scripts/write-sha256sums.sh" "SHA256SUMS-${{ matrix.os }}_vscpl2drv-tcpipsrv_15.1.0.deb" <<'SHA256SUMS_PATTERNS'
         /home/runner/work/vscpl2drv-tcpipsrv/vscpl2drv-tcpipsrv/build/vscpl2drv-tcpipsrv_15.1.0.deb
         SHA256SUMS_PATTERNS
 
