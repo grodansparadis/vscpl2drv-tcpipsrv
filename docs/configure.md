@@ -347,13 +347,13 @@ Full name for user.
 ### events
 This is a list with events the user is allowed to send and/or receive. If empty all events can be sent and received by the users.
 
- ### class
- VSCP class. Can be set to -1 to allow all classes.
+### class
+VSCP class. Can be set to -1 to allow all classes.
 
- ### type
- VSCP type. Can be set to -1 to allow all types. 
+### type
+VSCP type. Can be set to -1 to allow all types. 
 
- ### dir
+### dir
  The direction the user is allowed to handle. Set to "rx" to allow only receive. Set to "tx" to allow only transmit. Set to "both" or empty to allow sending and receiving.
 
 ### max-priority
