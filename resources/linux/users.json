@@ -2,7 +2,7 @@
 	"users" : [
 		{
 			"name" : "admin",
-			"password" : "487636FDE3637C7C853AAC9EAF6FA062;357C71CA59F760C08C4125C444A22A91FD1FE1FB0E5628771A572BAF6F61B71F",
+			"password" : "2d1e4f91dae49cd08eaba2293e422273",
 			"fullname" : "Miss. Super User",
 			"rights" : "admin",
 			"remotes" : [
@@ -16,7 +16,7 @@
 		},
 		{
 			"name" : "user",
-			"password" : "0839DD1BE692164847B601E6520CE23B;3E1B4D950F04EA3BFA2C43160B9D98ECC76B249F79A1062F041C526978591BA3",
+			"password" : "8c3088f1b27432344f14d82033749797",
 			"fullname" : "Mr. Sample User",
 			"rights" : "user",
 			"remotes" : "",
@@ -27,7 +27,7 @@
 		},
 		{
 			"name" : "special1",
-			"password" : "7B79EF5A2532F9B46DFEC501BAD16C35;100943D7C2C1C9AE99AE4F2287241DA7EAC3969EDDED50AFF3FB4EAD33C1BAD9",
+			"password" : "a0ba1374b1844b64f56c5a95fb64c602",
 			"fullname" : "Mrs. Special user",
 			"rights" : [
 				"user",

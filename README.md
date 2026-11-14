@@ -1,5 +1,9 @@
 # vscpl2drv-tcpipsrv
 
+![License](https://img.shields.io/badge/license-GPL--2.0--only-blue.svg)
+[![Build](https://github.com/grodansparadis/vscpl2drv-tcpipsrv/actions/workflows/build.yml/badge.svg)](https://github.com/grodansparadis/vscpl2drv-tcpipsrv/actions/workflows/build.yml)
+[![CMake Cross-Platform Build](https://github.com/grodansparadis/vscpl2drv-tcpipsrv/actions/workflows/cmake_cross_platform_build.yml/badge.svg)](https://github.com/grodansparadis/vscpl2drv-tcpipsrv/actions/workflows/cmake_cross_platform_build.yml)
+
 ![](https://github.com/grodansparadis/vscp-logo/blob/master/logo-128x128.png)
 
 
@@ -390,7 +394,7 @@ The format for the user file is specified below.
 If set to true events sent by the driver will be received by the driver itself. This is useful for debugging and testing and may be used to verify that events are sent correctly. If set to false sent events are not received by the driver. However the **CHKDATA** command will still show sent events in it's count. This behavior may be changed ion the future.
 
 ##### binary
-Settings for binary mode. After logging in with the text protocol a client can send the **BINARY** command to switch the connection to the [VSCP general binary protocol](https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_over_binary). Binary records are framed as a two byte big endian length followed by the frame.
+Settings for binary mode. After logging in with the text protocol a client can send the **BINARY** command to switch the connection to the [VSCP general binary protocol](https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_over_binary). Each binary record starts with the three byte stream prefix from the specification: the sync byte `0x55` followed by a big endian word with the packet version in the three high bits and the frame length (1-8191) in the low 13 bits. Plain records are version 0, authenticated records version 1. Bytes before a sync byte are skipped; a record with length zero or the wrong version closes the connection.
 
 ```json
 "binary" : {
@@ -597,7 +601,7 @@ The _users.json_ file looks like this
 	"users" : [
 		{
 			"name" : "admin",
-			"password" : "487636FDE3637C7C853AAC9EAF6FA062;357C71CA59F760C08C4125C444A22A91FD1FE1FB0E5628771A572BAF6F61B71F",
+			"password" : "2d1e4f91dae49cd08eaba2293e422273",
 			"fullname" : "Miss. Super User",
 			"rights" : "admin",
 			"remotes" : [
@@ -611,7 +615,7 @@ The _users.json_ file looks like this
 		},
 		{
 			"name" : "user",
-			"password" : "0839DD1BE692164847B601E6520CE23B;3E1B4D950F04EA3BFA2C43160B9D98ECC76B249F79A1062F041C526978591BA3",
+			"password" : "8c3088f1b27432344f14d82033749797",
 			"fullname" : "Mr. Sample User",
 			"rights" : "user",
 			"remotes" : "",

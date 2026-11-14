@@ -118,7 +118,7 @@ means that all events with class 10 and type 6 and any GUID with last byte set t
 All values can be give in decimal or hexadecimal (preceded number with '0x'). GUID is always given in hexadecimal (without preceded '0x').
 
 ## binary
-Settings for binary mode. After logging in with the text protocol a client can send the **BINARY** command to switch the connection to the [VSCP general binary protocol](https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_over_binary). Binary records are framed as a two byte big endian length followed by the frame.
+Settings for binary mode. After logging in with the text protocol a client can send the **BINARY** command to switch the connection to the [VSCP general binary protocol](https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_over_binary). Each binary record starts with the three byte stream prefix from the specification: the sync byte `0x55` followed by a big endian word with the packet version in the three high bits and the frame length (1-8191) in the low 13 bits. Plain records are version 0, authenticated records version 1. Bytes before a sync byte are skipped; a record with length zero or the wrong version closes the connection.
 
 ```json
 "binary" : {

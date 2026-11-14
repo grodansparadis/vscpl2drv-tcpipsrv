@@ -7,6 +7,9 @@ tagged, rename **Unreleased** to the version and date, and start a new
 
 ## Unreleased
 
+- Binary mode uses the stream prefix from the specification, `[0x55][version:3 | length:13]`, instead of a two byte length. Clients using the old framing must be updated
+- Fix the sample users.json: passwords are md5("user:password") as the driver expects, so admin/secret works
+- Add license and CI build badges to the README
 - Fix the CI checksum step: readable SHA256SUMS files, bash 3.2 on macOS, and jobs that run in a subfolder
 - Add scripts/download-artifacts.sh to download and verify the newest CI build artifacts
 - CI writes a SHA256SUMS-<artifact> checksum file into every uploaded build artifact

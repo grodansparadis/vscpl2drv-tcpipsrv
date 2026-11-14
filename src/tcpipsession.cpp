@@ -30,6 +30,7 @@
 #include "StdAfx.h"
 #endif
 
+#include <algorithm>
 #include <list>
 #include <string>
 
@@ -2623,12 +2624,22 @@ CTcpipSession::handleClientHelp(void)
 // ----------------------------------------------------------------------------
 //
 // After the text command BINARY the connection carries records
-// [length:2, big-endian][frame], see the VSCP general binary protocol.
+// [0x55][version:3 | length:13, big-endian][frame], see the VSCP general
+// binary protocol. Plain records are version 0, authenticated records
+// version 1.
 // If the driver is configured with binary encryption every frame is a
 // version 1 authenticated frame (AES-CBC + HMAC-SHA-256), and any record
 // that fails authentication, or is not authenticated, closes the
 // connection. Without binary encryption only plain frames are accepted.
 //
+
+namespace {
+const uint8_t BINARY_SYNC_BYTE             = 0x55;
+const size_t BINARY_PREFIX_LENGTH          = 3;
+const size_t BINARY_MAX_RECORD_LENGTH      = 0x1fff; // 13-bit length
+const uint8_t BINARY_VERSION_PLAIN         = 0;
+const uint8_t BINARY_VERSION_AUTHENTICATED = 1;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // getCapabilities
@@ -2699,21 +2710,43 @@ CTcpipSession::onBinaryData(const uint8_t* buf, size_t len)
   m_binaryInput.insert(m_binaryInput.end(), buf, buf + len);
 
   size_t offset = 0;
-  while (isOpen() && m_bBinaryMode && ((m_binaryInput.size() - offset) >= 2)) {
+  while (isOpen() && m_bBinaryMode && (offset < m_binaryInput.size())) {
 
-    const size_t length = ((size_t)m_binaryInput[offset] << 8) | m_binaryInput[offset + 1];
-    if (0 == length) {
-      drvlog::warn("[TCP/IP srv] Zero length binary record from {}. Closing.", getRemoteAddress());
+    // Resync: skip anything before the sync byte
+    if (BINARY_SYNC_BYTE != m_binaryInput[offset]) {
+      auto sync = std::find(m_binaryInput.begin() + offset, m_binaryInput.end(), BINARY_SYNC_BYTE);
+      drvlog::warn("[TCP/IP srv] Skipped {} bytes before binary sync byte from {}.",
+                   (size_t)(sync - (m_binaryInput.begin() + offset)),
+                   getRemoteAddress());
+      offset = (size_t)(sync - m_binaryInput.begin());
+      continue;
+    }
+
+    if ((m_binaryInput.size() - offset) < BINARY_PREFIX_LENGTH) {
+      break; // Wait for the rest of the prefix
+    }
+
+    const uint16_t word   = (uint16_t)((m_binaryInput[offset + 1] << 8) | m_binaryInput[offset + 2]);
+    const uint8_t version = (uint8_t)(word >> 13);
+    const size_t length   = word & BINARY_MAX_RECORD_LENGTH;
+    const uint8_t expectedVersion =
+      m_pObj->isBinaryAuthenticated() ? BINARY_VERSION_AUTHENTICATED : BINARY_VERSION_PLAIN;
+    if ((0 == length) || (version != expectedVersion)) {
+      drvlog::warn("[TCP/IP srv] Invalid binary record (version {}, length {}) from {}. Closing.",
+                   version,
+                   length,
+                   getRemoteAddress());
       close();
       return;
     }
 
-    if ((m_binaryInput.size() - offset) < (2 + length)) {
+    if ((m_binaryInput.size() - offset) < (BINARY_PREFIX_LENGTH + length)) {
       break; // Wait for the rest of the record
     }
 
-    std::vector<uint8_t> frame(m_binaryInput.begin() + offset + 2, m_binaryInput.begin() + offset + 2 + length);
-    offset += 2 + length;
+    std::vector<uint8_t> frame(m_binaryInput.begin() + offset + BINARY_PREFIX_LENGTH,
+                               m_binaryInput.begin() + offset + BINARY_PREFIX_LENGTH + length);
+    offset += BINARY_PREFIX_LENGTH + length;
 
     if (m_pObj->isBinaryAuthenticated()) {
       // Only authentic version 1 frames with the configured algorithm
@@ -2999,29 +3032,32 @@ CTcpipSession::sendBinaryFrame(const uint8_t* frame, size_t len)
   std::vector<uint8_t> record;
 
   if (m_pObj->isBinaryAuthenticated()) {
-    record.resize(2 + len + 48);
-    const size_t innerLen = vscp_encryptFrameV1(record.data() + 2,
-                                                record.size() - 2,
+    record.resize(BINARY_PREFIX_LENGTH + len + 48);
+    const size_t innerLen = vscp_encryptFrameV1(record.data() + BINARY_PREFIX_LENGTH,
+                                                record.size() - BINARY_PREFIX_LENGTH,
                                                 frame,
                                                 len,
                                                 m_pObj->getBinaryAesKey(),
                                                 m_pObj->getBinaryHmacKey(),
                                                 nullptr, // Random IV
                                                 m_pObj->getBinaryEncryption());
-    if ((0 == innerLen) || (innerLen > 0xffff)) {
+    if ((0 == innerLen) || (innerLen > BINARY_MAX_RECORD_LENGTH)) {
       drvlog::error("[TCP/IP srv] Failed to encrypt binary frame for {}", getRemoteAddress());
       return false;
     }
-    record.resize(2 + innerLen);
-    record[0] = (uint8_t)(innerLen >> 8);
-    record[1] = (uint8_t)innerLen;
+    const uint16_t word = (uint16_t)((BINARY_VERSION_AUTHENTICATED << 13) | innerLen);
+    record.resize(BINARY_PREFIX_LENGTH + innerLen);
+    record[0] = BINARY_SYNC_BYTE;
+    record[1] = (uint8_t)(word >> 8);
+    record[2] = (uint8_t)word;
   }
   else {
-    if (len > 0xffff) {
+    if (len > BINARY_MAX_RECORD_LENGTH) {
       return false;
     }
-    record.reserve(2 + len);
-    record.push_back((uint8_t)(len >> 8));
+    record.reserve(BINARY_PREFIX_LENGTH + len);
+    record.push_back(BINARY_SYNC_BYTE);
+    record.push_back((uint8_t)(len >> 8)); // Version 0
     record.push_back((uint8_t)len);
     record.insert(record.end(), frame, frame + len);
   }
