@@ -7,6 +7,7 @@ tagged, rename **Unreleased** to the version and date, and start a new
 
 ## Unreleased
 
+- Build against the latest vscp master (d75d4f5c6)
 - Man page vscpl2drv-tcpipsrv(1) describes the driver and its configuration file. It is converted from man/vscpl2drv-tcpipsrv.1.md with pandoc when the driver is built and installed in share/man/man1; old man page scripts and generated files are removed
 - Binary mode uses the stream prefix from the specification, `[0x55][version:3 | length:13]`, instead of a two byte length. Clients using the old framing must be updated
 - Fix the sample users.json: passwords are md5("user:password") as the driver expects, so admin/secret works

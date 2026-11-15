@@ -39,8 +39,8 @@ include(FetchContent)
 
 # vscp 1ab1314 (development)
 FetchContent_Declare(vscp
-  URL https://codeload.github.com/grodansparadis/vscp/tar.gz/1ab1314702bc093ec77b5ac75691ec867a582cbc
-  URL_HASH SHA256=0924859b4dbdeb46b6cbbd5d3c950f9b69728c5e96d44dc04bc2390dc5b5fdba
+  URL https://codeload.github.com/grodansparadis/vscp/tar.gz/d75d4f5c6c097a1dca841b63727c79c522b701ce
+  URL_HASH SHA256=709763c16c995b65787e72947f9c3f45a03a404c708286c7cad00b53dcaedbb5
   SOURCE_SUBDIR _no_cmake_)
 
 # mongoose 7.22 (9ccfc02)
