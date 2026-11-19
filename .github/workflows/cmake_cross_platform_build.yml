@@ -17,7 +17,7 @@ jobs:
       version_build: ${{ steps.parse_version.outputs.version_build }}
     steps:
     - name: Checkout main repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         repository: grodansparadis/vscpl2drv-tcpipsrv
 
@@ -90,12 +90,12 @@ jobs:
 
     steps:
     - name: Checkout main repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         repository: grodansparadis/vscpl2drv-tcpipsrv
 
     - name: Checkout VSCP repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         repository: grodansparadis/vscp
         path: vscp
@@ -115,7 +115,7 @@ jobs:
     # Setup Visual Studio environment properly for Windows
     - name: Setup MSBuild and Visual Studio (Windows)
       if: runner.os == 'Windows'
-      uses: microsoft/setup-msbuild@v1.3
+      uses: microsoft/setup-msbuild@v3
       with:
         msbuild-architecture: x64
 
@@ -599,7 +599,7 @@ jobs:
         SHA256SUMS_PATTERNS
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: vscpl2drv-tcpipsrv-${{ needs.version.outputs.version }}-${{ matrix.os }}
         path: |
@@ -620,12 +620,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Download all artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         path: artifacts
 
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v3
       with:
         files: artifacts/**/*
         draft: false

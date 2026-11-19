@@ -15,7 +15,7 @@ jobs:
 
     steps:
 
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Checkout google test repo
       run: sudo apt-get install libgtest-dev && cd /usr/src/gtest && sudo mkdir build && cd build && sudo cmake .. && sudo make DESTDIR=/usr/lib
@@ -68,7 +68,7 @@ jobs:
         /home/runner/work/vscpl2drv-tcpipsrv/vscpl2drv-tcpipsrv/build/vscpl2drv-tcpipsrv_15.1.0.deb
         SHA256SUMS_PATTERNS
 
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v7
       with:
         name: ${{ matrix.os }}_vscpl2drv-tcpipsrv_15.1.0.deb
         path: |
